@@ -22,6 +22,7 @@ if str(_PKG_ROOT) not in sys.path:
 
 import streamlit as st
 
+from config import STREAMLIT_MIN_POLL_INTERVAL_SECONDS
 from data import init_db
 from reminder_settings import get_reminder_settings
 from session_auth import (
@@ -41,17 +42,27 @@ from tab_progress import render_progress_tab
 from tab_settings import render_settings_tab
 from tab_users import render_users_tab
 
+_TAB_SESSION_KEY = "ikr_active_tab"
+
 
 def _background_tick() -> None:
-    from background_scheduler import run_background_tick
+    from streamlit_scheduler import schedule_background_tick
 
-    run_background_tick()
+    settings = get_reminder_settings()
+    interval = max(
+        STREAMLIT_MIN_POLL_INTERVAL_SECONDS,
+        int(settings["poll_interval_seconds"]),
+    )
+    schedule_background_tick(interval)
 
 
 def _register_background_scheduler() -> None:
-    """Poll Telegram and send daily reminders using admin-configured intervals."""
+    """Poll Telegram on a background thread so the UI stays responsive."""
     settings = get_reminder_settings()
-    interval = max(30, int(settings["poll_interval_seconds"]))
+    interval = max(
+        STREAMLIT_MIN_POLL_INTERVAL_SECONDS,
+        int(settings["poll_interval_seconds"]),
+    )
     try:
         st.fragment(run_every=timedelta(seconds=interval))(_background_tick)()
     except TypeError:
@@ -60,6 +71,34 @@ def _register_background_scheduler() -> None:
         if now - last >= interval:
             st.session_state._bg_scheduler_ts = now
             _background_tick()
+
+
+def _render_active_tab(tab_names: list[str]) -> None:
+    """Render only the selected tab (faster than st.tabs, which runs every tab)."""
+    if _TAB_SESSION_KEY not in st.session_state or st.session_state[_TAB_SESSION_KEY] not in tab_names:
+        st.session_state[_TAB_SESSION_KEY] = tab_names[0]
+
+    st.radio(
+        "Section",
+        tab_names,
+        horizontal=True,
+        key=_TAB_SESSION_KEY,
+        label_visibility="collapsed",
+    )
+
+    active = st.session_state[_TAB_SESSION_KEY]
+    if active == "Progress":
+        render_progress_tab()
+    elif active == "Config":
+        render_config_tab()
+    elif active == "History":
+        render_history_tab()
+    elif active == "Account":
+        render_account_tab()
+    elif active == "Settings":
+        render_settings_tab()
+    elif active == "Users":
+        render_users_tab()
 
 
 def main() -> None:
@@ -83,6 +122,12 @@ def main() -> None:
         render_login_page()
         return
 
+    if not st.session_state.get("_tg_boot_polled"):
+        st.session_state._tg_boot_polled = True
+        from streamlit_scheduler import schedule_background_tick
+
+        schedule_background_tick(0, force=True)
+
     head_l, head_r = st.columns([5, 1])
     with head_l:
         st.markdown("## Individual IKR")
@@ -97,25 +142,7 @@ def main() -> None:
     if current_user_is_admin():
         tab_names.extend(["Settings", "Users"])
 
-    tabs = st.tabs(tab_names)
-
-    with tabs[0]:
-        render_progress_tab()
-
-    with tabs[1]:
-        render_config_tab()
-
-    with tabs[2]:
-        render_history_tab()
-
-    with tabs[3]:
-        render_account_tab()
-
-    if current_user_is_admin() and len(tabs) > 4:
-        with tabs[4]:
-            render_settings_tab()
-        with tabs[5]:
-            render_users_tab()
+    _render_active_tab(tab_names)
 
 
 if __name__ == "__main__":

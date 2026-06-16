@@ -173,6 +173,12 @@ def _render_month_detail(record: dict) -> None:
     st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _load_history_records(user_id: str) -> tuple[dict, ...]:
+    months = list_configured_months(user_id)
+    return tuple(_build_month_record(user_id, mk) for mk in months)
+
+
 def render_history_tab() -> None:
     user_id = current_user_id()
 
@@ -187,7 +193,7 @@ def render_history_tab() -> None:
         st.warning("No historical data yet. Add goals in the **Config** tab.")
         return
 
-    records = [_build_month_record(user_id, mk) for mk in months]
+    records = list(_load_history_records(user_id))
 
     scores = [r["overall_pct"] for r in records if r["goal_count"] > 0]
     best = max(records, key=lambda r: r["overall_pct"])

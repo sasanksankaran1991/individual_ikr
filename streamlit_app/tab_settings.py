@@ -35,6 +35,8 @@ def render_settings_tab() -> None:
         if status.get("bot_username"):
             st.caption(f"Bot: @{status['bot_username']}")
         st.caption(f"Last poll: {status['last_poll_at']}")
+        if status.get("last_telegram_error"):
+            st.warning(f"Last Telegram error: {status['last_telegram_error']}")
         st.caption(f"Last daily reminder date: {status['last_daily_reminder_date']}")
         st.caption(f"Next daily reminder: {status['next_daily_reminder']}")
         st.caption(f"Checked at: {status['checked_at']}")

@@ -92,8 +92,22 @@ def run_background_tick() -> dict:
     set_app_meta(SCHEDULER_LAST_POLL_META_KEY, now.isoformat(timespec="seconds"))
 
     inbound_results, inbound_err = process_all_inbound_updates()
+    if inbound_err:
+        set_app_meta("telegram_last_error", inbound_err)
+    else:
+        set_app_meta("telegram_last_error", "")
 
     reminder_results: list[dict] = []
+    # Skip scheduled reminders in the same tick as user commands (avoids extra messages).
+    user_just_messaged = any(r.get("type") == "command" for r in inbound_results)
+    if user_just_messaged:
+        return {
+            "at": now.isoformat(timespec="seconds"),
+            "inbound_count": len(inbound_results),
+            "inbound_error": inbound_err,
+            "reminder_results": reminder_results,
+        }
+
     if _should_run_daily_reminders(now):
         reminder_results.extend(process_daily_reminders())
         set_app_meta(SCHEDULER_DAILY_REMINDER_META_KEY, now.date().isoformat())

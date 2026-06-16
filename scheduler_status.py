@@ -36,5 +36,6 @@ def get_scheduler_status() -> dict:
         "timezone": tz,
         "telegram_user_count": len(tg_users),
         "total_users": len(list_users()),
+        "last_telegram_error": get_app_meta("telegram_last_error") or "",
         "checked_at": datetime.now().isoformat(timespec="seconds"),
     }

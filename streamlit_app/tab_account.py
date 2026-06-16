@@ -59,10 +59,13 @@ def render_account_tab() -> None:
 
         if connected:
             st.success(
-                f"Connected to Telegram (chat id `{tg.get('telegram_chat_id')}`). "
-                f"Update progress anytime by messaging the bot — no need to open this app."
+                f"Connected to Telegram (chat id `{tg.get('telegram_chat_id')}`)."
             )
-            c1, c2 = st.columns(2)
+            st.caption(
+                "Replies are checked every ~30s while this app is open. "
+                "Use **Check Telegram replies** if a message wasn't answered."
+            )
+            c1, c2, c3 = st.columns(3)
             with c1:
                 if st.button("Send test summary", key="telegram_send_now_btn", use_container_width=True):
                     ok, message = send_summary_to_user(user_id)
@@ -71,6 +74,27 @@ def render_account_tab() -> None:
                     else:
                         st.error(message)
             with c2:
+                if st.button(
+                    "Check Telegram replies",
+                    key="telegram_poll_now_btn",
+                    use_container_width=True,
+                ):
+                    from telegram_inbound import process_all_inbound_updates
+
+                    with st.spinner("Checking Telegram…"):
+                        results, err = process_all_inbound_updates()
+                    if err:
+                        st.error(err)
+                    elif results:
+                        for row in results:
+                            detail = row.get("detail", "")
+                            if row.get("ok"):
+                                st.success(detail or "Reply sent.")
+                            else:
+                                st.error(detail or "Send failed.")
+                    else:
+                        st.info("No new Telegram messages.")
+            with c3:
                 if st.button("Disconnect Telegram", key="telegram_disconnect_btn", use_container_width=True):
                     disconnect_user_telegram(user_id)
                     st.success("Telegram disconnected.")
@@ -97,7 +121,7 @@ def render_account_tab() -> None:
                 if bot_username:
                     st.caption(f"Bot: @{bot_username}")
 
-                # Try immediately, then poll every 2s until linked or error
+                # Try immediately, then poll every 5s until linked or error
                 status, message = poll_auto_connect(user_id)
                 if status == "connected":
                     st.rerun()
@@ -105,7 +129,7 @@ def render_account_tab() -> None:
                     st.error(message)
                 else:
                     try:
-                        poll_fn = st.fragment(run_every=timedelta(seconds=2))(
+                        poll_fn = st.fragment(run_every=timedelta(seconds=5))(
                             _telegram_poll_fragment
                         )
                         poll_fn(user_id)
@@ -124,6 +148,6 @@ def render_account_tab() -> None:
                 "2. Tap **Start** in the Telegram chat.\n"
                 "3. Return here — linking completes automatically.\n\n"
                 "**Update progress in Telegram (app not required):** "
-                "send `1 3.5`, `Read: 3`, or `/status`. "
-                "Keep `python notifiers/poll_telegram.py` on cron for instant replies while the app is closed."
+                "send `1 5`, `1 +3`, `1 -2`, `Read: 3`, or `/goals`. "
+                "Keep `python scripts/poll_loop.py` running for instant replies while the app is closed."
             )

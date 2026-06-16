@@ -88,16 +88,17 @@ def build_progress_summary(user_id: str, month_key: str, *, username: str = "") 
             f"{prog:.2f}/{g['target']:.2f} ({pct:.0f}%) "
             f"[{gi['label']}]"
         )
-    lines.append("\nTap G1, G2, … then enter a value (same as 1 5).")
+    lines.append("\nSend /goals when you want the chart. Updates reply with text only.")
     return "\n".join(lines)
 
 
 def _telegram_update_hint() -> str:
     return (
         "\n\n✏️ Update from Telegram:\n"
-        "• Tap G1, G2, … then type a value or tap 1 / 5 / 15\n"
-        "• Or send: 1 5  (goal number + value)\n"
-        "• Tap 📊 Goals to refresh status\n"
+        "• Send: 1 5  (set value)\n"
+        "• Send: 1 +3  or  1 -2  (add / subtract)\n"
+        "• Or: Read: 3  (goal name + value)\n"
+        "• /goals — refresh list\n"
         "• /help — commands"
     )
 
@@ -155,17 +156,12 @@ def send_telegram_message(
                 progress = fetch_month_progress(user_id, month_key)
                 png = render_timeline_png_bytes(user_id, month_key, goals, progress)
                 if png:
-                    caption = message[:1024]
-                    telegram_send_photo(
-                        token,
-                        chat_id,
-                        png,
-                        caption=caption,
-                        reply_markup=reply_markup,
-                    )
-                    if len(message) > 1024:
-                        telegram_send_text(token, chat_id, message[1024:])
-                    return True, "Message sent to Telegram."
+                    try:
+                        caption = message[:1024]
+                        telegram_send_photo(token, chat_id, png, caption=caption)
+                        return True, "Message sent to Telegram."
+                    except Exception:
+                        pass
         telegram_send_text(token, chat_id, message, reply_markup=reply_markup)
     except Exception as exc:
         return False, f"Telegram send failed: {exc}"
@@ -247,9 +243,7 @@ def _send_user_reminder(
         return {"user": username, "kind": kind, "status": "skipped"}
     if dry_run:
         return {"user": username, "kind": kind, "status": "dry_run", "message": message}
-    ok, detail = send_telegram_with_timeline(
-        user["telegram_chat_id"], message, user["id"], month_key
-    )
+    ok, detail = send_telegram_message(user["telegram_chat_id"], message)
     if ok:
         mark_reminder_sent(user["id"], kind, today)
         return {"user": username, "kind": kind, "status": "sent"}

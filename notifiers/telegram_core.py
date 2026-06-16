@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -67,31 +68,39 @@ def _api_get(
     *,
     params: dict | None = None,
     verify: bool | str | None = None,
+    timeout: int = 12,
+    retries: int = 3,
 ) -> dict:
     if verify is None:
         verify = _telegram_requests_verify()
-    while True:
+    last_exc: Exception | None = None
+    for attempt in range(retries):
         try:
             r = requests.get(
                 f"https://api.telegram.org/bot{bot_token}/{method}",
                 params=params or {},
-                timeout=60,
+                timeout=timeout,
                 verify=verify,
             )
             data = r.json()
             if not data.get("ok"):
                 raise RuntimeError(data.get("description", data))
             return data
-        except (
-            requests.exceptions.SSLError,
-            requests.exceptions.ConnectionError,
-        ) as err:
-            if verify is False:
-                raise
-            es = str(err).lower()
-            if "ssl" not in es and "certificate" not in es:
-                raise
+        except requests.exceptions.SSLError as err:
+            last_exc = err
             verify = False
+        except (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ) as err:
+            last_exc = err
+            if attempt + 1 < retries:
+                time.sleep(0.75 * (attempt + 1))
+                continue
+            raise
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Telegram API request failed")
 
 
 def fetch_bot_info() -> dict | None:
@@ -149,6 +158,21 @@ def fetch_recent_chat_ids() -> tuple[list[dict], str | None]:
     return entries, None
 
 
+def ensure_polling_mode() -> str | None:
+    """Remove webhook if set — getUpdates polling does not work with an active webhook."""
+    token = resolve_bot_token()
+    if not token:
+        return None
+    try:
+        info = _api_get(token, "getWebhookInfo")
+        url = str((info.get("result") or {}).get("url") or "").strip()
+        if url:
+            _api_get(token, "deleteWebhook", params={"drop_pending_updates": False})
+    except Exception as exc:
+        return str(exc)
+    return None
+
+
 def fetch_updates(*, offset: int | None = None) -> tuple[list[dict], str | None]:
     """Fetch bot updates. Pass offset to acknowledge earlier updates."""
     token = resolve_bot_token()
@@ -191,7 +215,7 @@ def telegram_send_text(
                 r = requests.post(
                     f"{base}/sendMessage",
                     json=payload,
-                    timeout=60,
+                    timeout=25,
                     verify=verify,
                 )
                 j = r.json()
@@ -203,6 +227,7 @@ def telegram_send_text(
             except (
                 requests.exceptions.SSLError,
                 requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
             ) as err:
                 if verify is False:
                     raise
@@ -231,23 +256,18 @@ def telegram_send_photo(
     image_bytes: bytes,
     *,
     caption: str | None = None,
-    reply_markup: dict | None = None,
 ) -> None:
-    """Send a PNG/JPEG image via sendPhoto."""
+    """Send a PNG/JPEG image via sendPhoto (caption only — use sendMessage for keyboards)."""
     verify: bool | str = _telegram_requests_verify()
     cid = parse_telegram_chat_id(chat_id)
     base = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
     data: dict = {"chat_id": cid}
     if caption:
         data["caption"] = caption[:1024]
-    if reply_markup:
-        import json
-
-        data["reply_markup"] = json.dumps(reply_markup)
     files = {"photo": ("timeline.png", image_bytes, "image/png")}
     while True:
         try:
-            r = requests.post(base, data=data, files=files, timeout=60, verify=verify)
+            r = requests.post(base, data=data, files=files, timeout=25, verify=verify)
             j = r.json()
             if not j.get("ok"):
                 raise RuntimeError(f"Telegram sendPhoto: {j.get('description', j)}")
@@ -255,6 +275,7 @@ def telegram_send_photo(
         except (
             requests.exceptions.SSLError,
             requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
         ) as err:
             if verify is False:
                 raise

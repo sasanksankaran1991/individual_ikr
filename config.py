@@ -83,7 +83,8 @@ def current_month_key() -> str:
 
 
 # In-app background scheduler defaults (overridden in admin Settings)
-TELEGRAM_POLL_INTERVAL_SECONDS = 60
+TELEGRAM_POLL_INTERVAL_SECONDS = 120
+STREAMLIT_MIN_POLL_INTERVAL_SECONDS = 30
 DAILY_REMINDER_HOUR = 11
 DAILY_REMINDER_MINUTE = 30
 EVENING_NUDGE_HOUR = 18
