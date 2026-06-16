@@ -35,6 +35,7 @@ from pwa import inject_pwa
 from styles import inject_styles
 from tab_account import render_account_tab
 from tab_config import render_config_tab
+from tab_history import render_history_tab
 from tab_login import render_login_page
 from tab_progress import render_progress_tab
 from tab_settings import render_settings_tab
@@ -92,7 +93,7 @@ def main() -> None:
             logout()
             st.rerun()
 
-    tab_names = ["Progress", "Config", "Account"]
+    tab_names = ["Progress", "Config", "History", "Account"]
     if current_user_is_admin():
         tab_names.extend(["Settings", "Users"])
 
@@ -105,12 +106,15 @@ def main() -> None:
         render_config_tab()
 
     with tabs[2]:
+        render_history_tab()
+
+    with tabs[3]:
         render_account_tab()
 
-    if current_user_is_admin() and len(tabs) > 3:
-        with tabs[3]:
-            render_settings_tab()
+    if current_user_is_admin() and len(tabs) > 4:
         with tabs[4]:
+            render_settings_tab()
+        with tabs[5]:
             render_users_tab()
 
 
