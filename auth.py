@@ -49,6 +49,17 @@ CREATE TABLE IF NOT EXISTS app_meta (
 );
 """
 
+_AUTH_SESSIONS_DDL = """
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+"""
+
 ADMIN_USERNAME = "admin"
 ADMIN_DEFAULT_PASSWORD = "admin"
 _PBKDF2_ITERATIONS = 260_000
@@ -82,7 +93,11 @@ def _migrate_users_notification_columns(conn: sqlite3.Connection) -> None:
 def init_users_table() -> None:
     with _connect() as conn:
         conn.executescript(
-            _USERS_DDL + _REMINDER_LOG_DDL + _CONNECT_TOKENS_DDL + _APP_META_DDL
+            _USERS_DDL
+            + _REMINDER_LOG_DDL
+            + _CONNECT_TOKENS_DDL
+            + _APP_META_DDL
+            + _AUTH_SESSIONS_DDL
         )
         _migrate_users_notification_columns(conn)
         conn.commit()
@@ -476,6 +491,88 @@ def mark_reminder_sent(user_id: str, kind: str, sent_date: str) -> None:
             """,
             (user_id, kind, sent_date),
         )
+        conn.commit()
+
+
+def cleanup_expired_auth_sessions() -> None:
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with _connect() as conn:
+        conn.execute("DELETE FROM auth_sessions WHERE expires_at < ?", (now,))
+        conn.commit()
+
+
+def create_auth_session(user_id: str, *, days: int = 5) -> str:
+    """Create a persistent login token (survives browser refresh)."""
+    from datetime import timedelta
+
+    init_users_table()
+    cleanup_expired_auth_sessions()
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(days=days)
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_sessions (token, user_id, expires_at, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                token,
+                user_id,
+                expires.isoformat(timespec="seconds"),
+                now.isoformat(timespec="seconds"),
+            ),
+        )
+        conn.commit()
+    return token
+
+
+def user_from_auth_session(token: str) -> dict | None:
+    if not token or not str(token).strip():
+        return None
+    init_users_table()
+    cleanup_expired_auth_sessions()
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT u.id, u.username, u.is_admin, s.expires_at
+            FROM auth_sessions s
+            JOIN users u ON u.id = s.user_id
+            WHERE s.token = ?
+            """,
+            (str(token).strip(),),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        expires = datetime.fromisoformat(str(row["expires_at"]))
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < datetime.now(timezone.utc):
+            revoke_auth_session(str(token).strip())
+            return None
+    except ValueError:
+        return None
+    return {
+        "id": str(row["id"]),
+        "username": str(row["username"]),
+        "is_admin": bool(row["is_admin"]),
+    }
+
+
+def revoke_auth_session(token: str) -> None:
+    if not token:
+        return
+    init_users_table()
+    with _connect() as conn:
+        conn.execute("DELETE FROM auth_sessions WHERE token = ?", (str(token).strip(),))
+        conn.commit()
+
+
+def revoke_all_auth_sessions(user_id: str) -> None:
+    init_users_table()
+    with _connect() as conn:
+        conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
         conn.commit()
 
 

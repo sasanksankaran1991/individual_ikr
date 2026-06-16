@@ -26,11 +26,15 @@ from config import STREAMLIT_MIN_POLL_INTERVAL_SECONDS
 from data import init_db
 from reminder_settings import get_reminder_settings
 from session_auth import (
+    bootstrap_cookies,
     check_session_valid,
     current_user_is_admin,
     current_username,
+    get_cookie_manager,
     is_logged_in,
     logout,
+    persist_login_cookie,
+    try_restore_session_from_cookie,
 )
 from pwa import inject_pwa
 from styles import inject_styles
@@ -83,8 +87,18 @@ def main() -> None:
     inject_pwa()
     _register_background_scheduler()
 
+    cookie_manager = get_cookie_manager()
+    bootstrap_cookies(cookie_manager)
+
+    if not is_logged_in():
+        try_restore_session_from_cookie(cookie_manager)
+
+    if persist_login_cookie(cookie_manager):
+        st.rerun()
+
     if is_logged_in() and not check_session_valid():
         st.warning("Session expired. Please sign in again.")
+        logout(cookie_manager)
         render_login_page()
         return
 
@@ -105,7 +119,7 @@ def main() -> None:
         st.caption(f"Signed in as **{current_username()}**{role}")
     with head_r:
         if st.button("Sign out", key="sign_out_btn", use_container_width=True):
-            logout()
+            logout(cookie_manager)
             st.rerun()
 
     tab_names = ["Progress", "Config", "History", "Account"]

@@ -108,8 +108,8 @@ def save_reminder_settings(
         return False, "Evening nudge hour must be between 0 and 23."
     if not 0 <= evening_nudge_minute <= 59:
         return False, "Evening nudge minute must be between 0 and 59."
-    if not 5 <= session_timeout_minutes <= 1440:
-        return False, "Session timeout must be between 5 and 1440 minutes."
+    if not 5 <= session_timeout_minutes <= 10080:
+        return False, "Session timeout must be between 5 and 10080 minutes (7 days)."
 
     tz = timezone.strip()
     if tz:

@@ -87,9 +87,10 @@ def render_settings_tab() -> None:
         session_timeout = st.number_input(
             "Session timeout (minutes)",
             5,
-            1440,
+            10080,
             int(settings["session_timeout_minutes"]),
-            step=15,
+            step=60,
+            help="Default is 7200 (5 days). Persistent login cookie also lasts 5 days.",
         )
         allow_unequal = st.toggle(
             "Allow saving goals when weightage ≠ 100",
