@@ -79,6 +79,13 @@ def current_month_key() -> str:
     return month_key(today.year, today.month)
 
 
+# In-app background scheduler (local machine time)
+TELEGRAM_POLL_INTERVAL_SECONDS = 60
+DAILY_REMINDER_HOUR = 11
+DAILY_REMINDER_MINUTE = 30
+SCHEDULER_DAILY_REMINDER_META_KEY = "scheduler_daily_reminder_date"
+
+
 def new_goal_id() -> str:
     return str(uuid.uuid4())
 

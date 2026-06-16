@@ -93,27 +93,28 @@ Message your bot:
 | `1 3.5` | Set goal #1 progress to 3.5 |
 | `Read: 3` | Set progress for goal named “Read” to 3 |
 
-### Background polling (recommended)
+### In-app background scheduler
 
-While the Streamlit app is open, it polls Telegram every ~30 seconds.
+While the Streamlit app is **running** (even on the login screen), it automatically:
 
-For updates when the app is closed, run this on a schedule (cron / launchd), every 1–2 minutes:
+1. **Polls Telegram every 1 minute** — picks up progress updates and connect messages
+2. **Sends daily reminders at 11:30 AM** (your computer’s local time) — missing goals or stale progress summaries
+
+Configure the reminder time in the admin **Settings** tab (default 11:30 AM local time).
+
+### When the app is closed
+
+For Telegram updates and reminders when Streamlit is not running, use Task Scheduler (Windows) or cron (Mac/Linux):
 
 ```bash
-cd /path/to/individual_ikr
-python notifiers/poll_telegram.py
+python notifiers/poll_telegram.py      # every 1–2 minutes
+python notifiers/send_reminders.py     # once daily (backup for 11:30 reminders)
 ```
 
-Daily reminders (missing goals, stale progress):
-
-```bash
-python notifiers/send_reminders.py
-```
-
-Example cron (9:00 AM reminders + poll every 2 minutes):
+Example cron (Mac/Linux):
 
 ```cron
-0 9 * * * cd /path/to/individual_ikr && .venv/bin/python notifiers/send_reminders.py
+0 11 * * * cd /path/to/individual_ikr && .venv/bin/python notifiers/send_reminders.py
 */2 * * * * cd /path/to/individual_ikr && .venv/bin/python notifiers/poll_telegram.py
 ```
 

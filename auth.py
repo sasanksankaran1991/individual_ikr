@@ -461,3 +461,23 @@ def mark_reminder_sent(user_id: str, kind: str, sent_date: str) -> None:
         conn.commit()
 
 
+def get_app_meta(key: str) -> str | None:
+    init_users_table()
+    with _connect() as conn:
+        row = conn.execute("SELECT value FROM app_meta WHERE key = ?", (key,)).fetchone()
+    return str(row["value"]) if row else None
+
+
+def set_app_meta(key: str, value: str) -> None:
+    init_users_table()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_meta (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
+        conn.commit()
+
+

@@ -20,6 +20,7 @@ if str(_PKG_ROOT) not in sys.path:
 import streamlit as st
 
 from data import init_db
+from reminder_settings import get_reminder_settings
 from session_auth import (
     current_user_is_admin,
     current_username,
@@ -31,23 +32,28 @@ from tab_account import render_account_tab
 from tab_config import render_config_tab
 from tab_login import render_login_page
 from tab_progress import render_progress_tab
+from tab_settings import render_settings_tab
 from tab_users import render_users_tab
 
 
-def _poll_telegram_inbound() -> None:
-    """Pick up Telegram replies (progress updates) without user opening a specific tab."""
-    from telegram_inbound import process_all_inbound_updates
+def _background_tick() -> None:
+    from background_scheduler import run_background_tick
 
-    now = time.time()
-    last = float(st.session_state.get("_tg_inbound_poll_ts", 0))
-    if now - last < 20:
-        return
-    st.session_state._tg_inbound_poll_ts = now
-    process_all_inbound_updates()
+    run_background_tick()
 
 
-def _telegram_background_poll() -> None:
-    _poll_telegram_inbound()
+def _register_background_scheduler() -> None:
+    """Poll Telegram and send daily reminders using admin-configured intervals."""
+    settings = get_reminder_settings()
+    interval = max(30, int(settings["poll_interval_seconds"]))
+    try:
+        st.fragment(run_every=timedelta(seconds=interval))(_background_tick)()
+    except TypeError:
+        now = time.time()
+        last = float(st.session_state.get("_bg_scheduler_ts", 0))
+        if now - last >= interval:
+            st.session_state._bg_scheduler_ts = now
+            _background_tick()
 
 
 def main() -> None:
@@ -59,16 +65,11 @@ def main() -> None:
     )
     init_db()
     inject_styles()
+    _register_background_scheduler()
 
     if not is_logged_in():
         render_login_page()
         return
-
-    _poll_telegram_inbound()
-    try:
-        st.fragment(run_every=timedelta(seconds=30))(_telegram_background_poll)()
-    except TypeError:
-        pass
 
     head_l, head_r = st.columns([5, 1])
     with head_l:
@@ -82,7 +83,7 @@ def main() -> None:
 
     tab_names = ["Progress", "Config", "Account"]
     if current_user_is_admin():
-        tab_names.append("Users")
+        tab_names.extend(["Settings", "Users"])
 
     tabs = st.tabs(tab_names)
 
@@ -97,6 +98,8 @@ def main() -> None:
 
     if current_user_is_admin() and len(tabs) > 3:
         with tabs[3]:
+            render_settings_tab()
+        with tabs[4]:
             render_users_tab()
 
 

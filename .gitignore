@@ -6,8 +6,14 @@ telegram_bot_token.txt
 # Database & personal data (created locally on first run)
 ikr.db
 *.corrupt_*.db
+*.db-wal
+*.db-shm
+*.db-journal
 progress.json
 goals_config.json
+
+# Streamlit local secrets (use .example or env vars in repo)
+.streamlit/secrets.toml
 
 # Python
 __pycache__/
