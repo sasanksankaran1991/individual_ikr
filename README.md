@@ -18,13 +18,22 @@ pip install -r requirements.txt
 
 ### 2. Run the app
 
+From the **repo root** (recommended):
+
 ```bash
 streamlit run streamlit_app/app.py
 ```
 
+Or from **`streamlit_app/`**:
+
+```bash
+cd streamlit_app
+streamlit run app.py
+```
+
 Open the URL shown in the terminal: **http://localhost:18501**
 
-(Default port is **18501** — not 8501 — so it won't clash with other Streamlit apps.)
+(Default port is **18501** — not 8501 — so it won't clash with other Streamlit apps. Port is set in `.streamlit/config.toml`; if you run from `streamlit_app/`, that folder has its own `.streamlit/config.toml` with the same port.)
 
 ### Use on your phone (install like an app)
 
@@ -62,6 +71,8 @@ On first run the app creates `ikr.db` automatically.
 
 Sign in, then go to **Account** and change your password.
 
+**Stay signed in:** Login persists for **5 days** across browser refreshes (secure cookie + server session). Use **Sign out** on the dashboard to revoke it early.
+
 ### 4. Set up your month
 
 1. **Config** — Add goals for the current month (name, target, weightage). Weightage should total 100% across goals.
@@ -75,7 +86,9 @@ That’s enough to use the app without Telegram.
 |-----|-----|---------|
 | **Progress** | Everyone | View and update progress for the selected month |
 | **Config** | Everyone | Add, edit, or remove goals for a month |
+| **History** | Everyone | Month-on-month progress trends and past records |
 | **Account** | Everyone | Change password; connect Telegram (optional) |
+| **Settings** | Admin only | Reminders, session timeout, poll interval, export/backup |
 | **Users** | Admin only | Create or delete user accounts |
 
 ---
@@ -113,17 +126,19 @@ Message your bot:
 
 | Message | Meaning |
 |---------|---------|
-| `/status` | Show current month goals and progress |
+| `/goals` or `/status` | Show current month goals (chart + status) |
 | `/help` | List commands |
-| `1 3.5` | Set goal #1 progress to 3.5 |
+| `1 5` | Set goal #1 progress to 5 |
+| `1 +3` | Add 3 to goal #1 |
+| `1 -2` | Subtract 2 from goal #1 (min 0) |
 | `Read: 3` | Set progress for goal named “Read” to 3 |
 
 ### In-app background scheduler
 
 While the Streamlit app is **running** (even on the login screen), it automatically:
 
-1. **Polls Telegram every 1 minute** — picks up progress updates and connect messages
-2. **Sends daily reminders at 11:30 AM** (your computer’s local time) — missing goals or stale progress summaries
+1. **Polls Telegram every ~2 minutes** (configurable in admin **Settings**) — picks up progress updates and connect messages
+2. **Sends daily reminders at 11:30 AM** (your computer’s local time, or configured timezone) — missing goals or stale progress summaries
 
 Configure the reminder time in the admin **Settings** tab (default 11:30 AM local time).
 
@@ -186,10 +201,13 @@ Check the bot token, that the user connected Telegram in **Account**, and that `
 
 ```
 individual_ikr/
-├── streamlit_app/     # UI (Progress, Config, Account, Users)
+├── streamlit_app/     # UI (Progress, Config, History, Account, Settings, Users)
+├── .streamlit/        # Port 18501, theme (also streamlit_app/.streamlit/ if you cd there)
 ├── notifiers/         # Telegram poll & daily reminders
-├── auth.py            # Users & passwords
+├── scripts/           # poll_loop, health_check
+├── auth.py            # Users, passwords & persistent sessions
 ├── data.py            # Goals & progress (SQLite)
 ├── config.py          # Paths & scoring helpers
+├── Dockerfile         # Container deploy on port 18501
 └── requirements.txt
 ```

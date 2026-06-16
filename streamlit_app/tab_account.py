@@ -34,22 +34,24 @@ def render_account_tab() -> None:
     with card_container():
         st.markdown(f"Signed in as **{current_username()}**")
 
-        with st.form("change_password_form", clear_on_submit=True):
-            st.markdown("#### Change password")
-            current_password = st.text_input("Current password", type="password")
-            new_password = st.text_input("New password", type="password")
-            confirm_password = st.text_input("Confirm new password", type="password")
-            submitted = st.form_submit_button("Change password", type="primary", use_container_width=True)
+        with st.expander("Change password", expanded=False):
+            with st.form("change_password_form", clear_on_submit=True):
+                current_password = st.text_input("Current password", type="password")
+                new_password = st.text_input("New password", type="password")
+                confirm_password = st.text_input("Confirm new password", type="password")
+                submitted = st.form_submit_button(
+                    "Change password", type="primary", use_container_width=True
+                )
 
-        if submitted:
-            if new_password != confirm_password:
-                st.error("New passwords do not match.")
-                return
-            ok, message = change_password(user_id, current_password, new_password)
-            if ok:
-                st.success(message)
-            else:
-                st.error(message)
+            if submitted:
+                if new_password != confirm_password:
+                    st.error("New passwords do not match.")
+                    return
+                ok, message = change_password(user_id, current_password, new_password)
+                if ok:
+                    st.success(message)
+                else:
+                    st.error(message)
 
     tg = get_user_telegram_settings(user_id)
     connected = bool(tg.get("telegram_chat_id") and tg.get("telegram_enabled"))
