@@ -33,6 +33,16 @@ def inject_styles() -> None:
             }
         }
 
+        /* Compact Altair timeline in progress summary */
+        [data-testid="stAltairChart"] {
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        [data-testid="stAltairChart"] iframe,
+        [data-testid="stAltairChart"] > div {
+            min-height: 0 !important;
+        }
+
         /* Cards */
         [data-testid="stVerticalBlockBorderWrapper"] {
             border-radius: 12px !important;
@@ -75,21 +85,82 @@ def inject_styles() -> None:
             border-radius: 999px;
             letter-spacing: 0.02em;
         }
-        .ikr-pill-done {
-            background: rgba(33, 195, 84, 0.18);
+        .ikr-pill-ahead {
+            background: rgba(34, 197, 94, 0.22);
             color: rgb(21, 128, 61);
         }
-        .ikr-pill-progress {
-            background: rgba(255, 171, 0, 0.18);
-            color: rgb(180, 83, 9);
+        .ikr-pill-behind {
+            background: rgba(239, 68, 68, 0.2);
+            color: rgb(185, 28, 28);
         }
-        .ikr-pill-todo {
-            background: rgba(128, 128, 128, 0.14);
-            color: inherit;
-            opacity: 0.85;
+        .ikr-pill-track {
+            background: rgba(234, 179, 8, 0.2);
+            color: rgb(161, 98, 7);
+        }
+        /* legacy aliases */
+        .ikr-pill-done { background: rgba(34, 197, 94, 0.22); color: rgb(21, 128, 61); }
+        .ikr-pill-progress { background: rgba(234, 179, 8, 0.2); color: rgb(161, 98, 7); }
+        .ikr-pill-todo { background: rgba(239, 68, 68, 0.2); color: rgb(185, 28, 28); }
+
+        .ikr-pace-banner {
+            font-size: 0.82rem;
+            font-weight: 600;
+            padding: 0.45rem 0.65rem;
+            border-radius: 8px;
+            margin-bottom: 0.55rem;
+            line-height: 1.4;
+        }
+        .ikr-pace-banner-ahead {
+            background: rgba(34, 197, 94, 0.14);
+            border: 1px solid rgba(34, 197, 94, 0.45);
+            color: rgb(21, 128, 61);
+        }
+        .ikr-pace-banner-behind {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.45);
+            color: rgb(185, 28, 28);
+        }
+        .ikr-pace-banner-track {
+            background: rgba(234, 179, 8, 0.12);
+            border: 1px solid rgba(234, 179, 8, 0.4);
+            color: rgb(161, 98, 7);
+        }
+        html[data-theme="dark"] .ikr-pace-banner-ahead { color: rgb(134, 239, 172); }
+        html[data-theme="dark"] .ikr-pace-banner-behind { color: rgb(252, 165, 165); }
+        html[data-theme="dark"] .ikr-pace-banner-track { color: rgb(253, 224, 71); }
+        html[data-theme="dark"] .ikr-pill-ahead { color: rgb(134, 239, 172); }
+        html[data-theme="dark"] .ikr-pill-behind { color: rgb(252, 165, 165); }
+        html[data-theme="dark"] .ikr-pill-track { color: rgb(253, 224, 71); }
+
+        .ikr-goal-glance {
+            font-size: 0.8rem;
+            padding: 0.5rem 0.6rem;
+            border-radius: 8px;
+            margin-bottom: 0.45rem;
+            border-left: 4px solid transparent;
+        }
+        .ikr-goal-glance-ahead {
+            background: rgba(34, 197, 94, 0.1);
+            border-left-color: rgb(34, 197, 94);
+        }
+        .ikr-goal-glance-behind {
+            background: rgba(239, 68, 68, 0.1);
+            border-left-color: rgb(239, 68, 68);
+        }
+        .ikr-goal-glance-track {
+            background: rgba(234, 179, 8, 0.08);
+            border-left-color: rgb(234, 179, 8);
         }
         html[data-theme="dark"] .ikr-pill-done { color: rgb(134, 239, 172); }
-        html[data-theme="dark"] .ikr-pill-progress { color: rgb(253, 186, 116); }
+        html[data-theme="dark"] .ikr-pill-progress { color: rgb(253, 224, 71); }
+
+        /* Standalone PWA (home screen) — safe area for notched phones */
+        @media (display-mode: standalone) {
+            .block-container {
+                padding-top: max(1rem, env(safe-area-inset-top)) !important;
+                padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+            }
+        }
 
         /* Comfortable padding on phones */
         @media (max-width: 768px) {

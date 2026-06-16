@@ -172,6 +172,7 @@ def telegram_send_text(
     text: str,
     *,
     parse_mode: str | None = None,
+    reply_markup: dict | None = None,
 ) -> None:
     """sendMessage in 4096-char chunks (Telegram limit)."""
     verify: bool | str = _telegram_requests_verify()
@@ -185,6 +186,8 @@ def telegram_send_text(
                 payload: dict = {"chat_id": cid, "text": chunk}
                 if parse_mode:
                     payload["parse_mode"] = parse_mode
+                if reply_markup and i == 0:
+                    payload["reply_markup"] = reply_markup
                 r = requests.post(
                     f"{base}/sendMessage",
                     json=payload,
@@ -207,3 +210,50 @@ def telegram_send_text(
                 if "ssl" not in es and "certificate" not in es:
                     raise
                 verify = False
+
+
+def answer_callback_query(bot_token: str, callback_query_id: str, text: str = "") -> None:
+    verify: bool | str = _telegram_requests_verify()
+    payload = {"callback_query_id": callback_query_id}
+    if text:
+        payload["text"] = text[:200]
+    requests.post(
+        f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
+        json=payload,
+        timeout=30,
+        verify=verify,
+    )
+
+
+def telegram_send_photo(
+    bot_token: str,
+    chat_id: str,
+    image_bytes: bytes,
+    *,
+    caption: str | None = None,
+) -> None:
+    """Send a PNG/JPEG image via sendPhoto."""
+    verify: bool | str = _telegram_requests_verify()
+    cid = parse_telegram_chat_id(chat_id)
+    base = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+    data: dict = {"chat_id": cid}
+    if caption:
+        data["caption"] = caption[:1024]
+    files = {"photo": ("timeline.png", image_bytes, "image/png")}
+    while True:
+        try:
+            r = requests.post(base, data=data, files=files, timeout=60, verify=verify)
+            j = r.json()
+            if not j.get("ok"):
+                raise RuntimeError(f"Telegram sendPhoto: {j.get('description', j)}")
+            return
+        except (
+            requests.exceptions.SSLError,
+            requests.exceptions.ConnectionError,
+        ) as err:
+            if verify is False:
+                raise
+            es = str(err).lower()
+            if "ssl" not in es and "certificate" not in es:
+                raise
+            verify = False

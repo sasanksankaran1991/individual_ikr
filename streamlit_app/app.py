@@ -1,9 +1,12 @@
 """
 Individual IKR dashboard — monthly personal development goals.
 
-Run from repo root:
+Run from repo root (opens on port 18501):
 
   streamlit run streamlit_app/app.py
+
+  # Or explicitly:
+  streamlit run streamlit_app/app.py --server.port=18501
 """
 
 from __future__ import annotations
@@ -22,11 +25,13 @@ import streamlit as st
 from data import init_db
 from reminder_settings import get_reminder_settings
 from session_auth import (
+    check_session_valid,
     current_user_is_admin,
     current_username,
     is_logged_in,
     logout,
 )
+from pwa import inject_pwa
 from styles import inject_styles
 from tab_account import render_account_tab
 from tab_config import render_config_tab
@@ -65,7 +70,13 @@ def main() -> None:
     )
     init_db()
     inject_styles()
+    inject_pwa()
     _register_background_scheduler()
+
+    if is_logged_in() and not check_session_valid():
+        st.warning("Session expired. Please sign in again.")
+        render_login_page()
+        return
 
     if not is_logged_in():
         render_login_page()

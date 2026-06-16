@@ -292,6 +292,24 @@ def delete_user(user_id: str, *, acting_admin_id: str) -> tuple[bool, str]:
     return True, f"User **{username}** and all their goals were deleted."
 
 
+def admin_reset_password(user_id: str, new_password: str) -> tuple[bool, str]:
+    """Admin-only: set a new password without knowing the old one."""
+    err = _validate_new_password(new_password)
+    if err:
+        return False, err
+    init_users_table()
+    with _connect() as conn:
+        row = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row:
+            return False, "User not found."
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(new_password), user_id),
+        )
+        conn.commit()
+    return True, f"Password reset for **{row['username']}**."
+
+
 def get_user_telegram_settings(user_id: str) -> dict:
     init_users_table()
     with _connect() as conn:

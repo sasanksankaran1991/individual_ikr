@@ -8,26 +8,46 @@ from config import (
     current_month_key,
     format_month_label,
     goal_completion_pct,
+    month_pace_fraction,
+    pace_info,
     weighted_score,
 )
 from data import (
     fetch_month_goals,
     fetch_month_progress,
+    fetch_progress_history,
     list_configured_months,
     save_month_progress,
 )
+from progress_timeline import render_overall_timeline
 from session_auth import current_user_id
 from styles import card_container
 
 
-def _status_pill(pct: float) -> str:
-    if pct >= 100.0:
-        label, css = "Complete", "ikr-pill-done"
-    elif pct > 0:
-        label, css = "In progress", "ikr-pill-progress"
-    else:
-        label, css = "Not started", "ikr-pill-todo"
-    return f'<span class="ikr-pill {css}">{label}</span>'
+def _status_pill(pill_class: str, label: str) -> str:
+    return f'<span class="ikr-pill {pill_class}">{label}</span>'
+
+
+def _pace_banner(info: dict, *, heading: str = "") -> str:
+    sign = "+" if info["diff"] >= 0 else ""
+    title = f"{heading} · " if heading else ""
+    return (
+        f'<div class="ikr-pace-banner {info["banner_class"]}">'
+        f'{title}<strong>{info["label"]}</strong> '
+        f"· {info['completion_pct']:.0f}% done "
+        f"· expected {info['expected_pct']:.0f}% "
+        f"· <span>{sign}{info['diff']:.0f}% vs pace</span>"
+        f"</div>"
+    )
+
+
+def _goal_glance_row(name: str, info: dict) -> str:
+    return (
+        f'<div class="ikr-goal-glance ikr-goal-glance-{info["tone"]}">'
+        f"<strong>{name}</strong> — {info['label']} "
+        f"({info['completion_pct']:.0f}% / {info['expected_pct']:.0f}% expected)"
+        f"</div>"
+    )
 
 
 def _progress_input_key(user_id: str, month: str, goal_id: str) -> str:
@@ -56,7 +76,10 @@ def render_progress_tab() -> None:
     user_id = current_user_id()
 
     st.markdown("### Progress")
-    st.caption("Track your goals for the month and update progress.")
+    st.caption(
+        "Green = ahead of month pace · Red = behind · Amber = on track "
+        "(±5% of expected)."
+    )
 
     configured = list_configured_months(user_id)
     if not configured:
@@ -88,37 +111,66 @@ def render_progress_tab() -> None:
     completed = sum(
         1 for g in goals if goal_completion_pct(updates[g["id"]], g["target"]) >= 100.0
     )
+    overall_info = pace_info(overall_pct, selected_month)
+    expected_pct = month_pace_fraction(selected_month) * 100.0
+
+    goal_infos: list[tuple[dict, dict]] = []
+    for g in goals:
+        pct = goal_completion_pct(updates[g["id"]], g["target"])
+        goal_infos.append((g, pace_info(pct, selected_month)))
+
+    ahead_n = sum(1 for _, i in goal_infos if i["tone"] == "ahead")
+    behind_n = sum(1 for _, i in goal_infos if i["tone"] == "behind")
+    track_n = len(goal_infos) - ahead_n - behind_n
 
     with card_container():
+        st.markdown(_pace_banner(overall_info, heading="Overall"), unsafe_allow_html=True)
         r1a, r1b = st.columns(2)
         r2a, r2b = st.columns(2)
         r1a.metric("Overall score", f"{overall_pct:.0f}%")
         r1b.metric("Weighted pts", f"{earned:.1f}/{total_weight:.1f}")
         r2a.metric("Complete", f"{completed}/{len(goals)}")
-        r2b.metric("Goals", str(len(goals)))
-        st.progress(min(overall_pct / 100.0, 1.0))
+        r2b.metric("Month elapsed", f"{expected_pct:.0f}%")
+        st.caption(
+            f"Goals: {ahead_n} ahead · {track_n} on track · {behind_n} behind"
+        )
+        render_overall_timeline(user_id, selected_month, goals, updates)
+
+    if len(goals) > 1:
+        st.markdown("#### Goals at a glance")
+        glance_html = "".join(_goal_glance_row(g["name"], info) for g, info in goal_infos)
+        st.markdown(glance_html, unsafe_allow_html=True)
 
     st.markdown("#### Goals")
 
-    for g in goals:
+    for g, g_info in goal_infos:
         prog = updates[g["id"]]
-        pct = goal_completion_pct(prog, g["target"])
+        pct = g_info["completion_pct"]
         contribution = (pct / 100.0) * g["weightage"]
         remaining = max(g["target"] - prog, 0.0)
 
         with card_container():
+            st.markdown(_pace_banner(g_info), unsafe_allow_html=True)
+            title = g["name"]
+            if g.get("category"):
+                title += f" · {g['category']}"
             st.markdown(
-                f'<p class="ikr-goal-title">{g["name"]}</p>'
+                f'<p class="ikr-goal-title">{title}</p>'
                 f'<p class="ikr-meta">Target {g["target"]:.2f} · '
                 f'Weight {g["weightage"]:.0f}% · Score +{contribution:.1f}</p>',
                 unsafe_allow_html=True,
             )
-            st.markdown(_status_pill(pct), unsafe_allow_html=True)
-            st.progress(min(pct / 100.0, 1.0))
+            if g.get("notes"):
+                st.caption(g["notes"])
+            st.markdown(
+                _status_pill(g_info["pill_class"], g_info["label"]),
+                unsafe_allow_html=True,
+            )
 
-            mc1, mc2 = st.columns(2)
+            mc1, mc2, mc3 = st.columns(3)
             mc1.metric("Progress", f"{prog:.2f}")
             mc2.metric("Done", f"{pct:.0f}%")
+            mc3.metric("Expected", f"{g_info['expected_pct']:.0f}%")
             st.caption(f"Remaining: {remaining:.2f} of {g['target']:.2f}")
 
             st.number_input(
@@ -139,17 +191,29 @@ def render_progress_tab() -> None:
         key=f"progress_save_btn_{user_id}",
     ):
         save_month_progress(
-            user_id, selected_month, _collect_updates(user_id, selected_month, goals)
+            user_id,
+            selected_month,
+            _collect_updates(user_id, selected_month, goals),
+            source="app",
         )
         st.success(f"Progress saved for {format_month_label(selected_month)}.")
         st.rerun()
 
+    history = fetch_progress_history(user_id, selected_month, limit=30)
+    if history:
+        with st.expander("Recent progress history", expanded=False):
+            for h in history:
+                st.caption(
+                    f"**{h['goal_name']}** → {h['value']:.2f} "
+                    f"via {h['source']} · {h['recorded_at'][:19]}"
+                )
+
     with st.expander("Score breakdown", expanded=False):
-        for g in goals:
+        for g, g_info in goal_infos:
             prog = updates[g["id"]]
-            pct = goal_completion_pct(prog, g["target"])
+            pct = g_info["completion_pct"]
             contribution = (pct / 100.0) * g["weightage"]
             st.markdown(
                 f"**{g['name']}** — {prog:.2f}/{g['target']:.2f} "
-                f"({pct:.0f}%) · +{contribution:.1f} pts"
+                f"({pct:.0f}%) · {g_info['label']} · +{contribution:.1f} pts"
             )

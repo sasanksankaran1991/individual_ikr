@@ -5,6 +5,7 @@ from __future__ import annotations
 import streamlit as st
 
 from auth import authenticate
+from pwa import render_mobile_install_hint
 from session_auth import login
 
 
@@ -26,3 +27,4 @@ def render_login_page() -> None:
             st.error("Invalid username or password.")
 
     st.caption("Default admin: **admin** / **admin** (change after first login in Account).")
+    render_mobile_install_hint()

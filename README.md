@@ -22,7 +22,34 @@ pip install -r requirements.txt
 streamlit run streamlit_app/app.py
 ```
 
-Open the URL shown in the terminal (usually http://localhost:8501).
+Open the URL shown in the terminal: **http://localhost:18501**
+
+(Default port is **18501** — not 8501 — so it won't clash with other Streamlit apps.)
+
+### Use on your phone (install like an app)
+
+The app is a **Progressive Web App (PWA)** — you can add it to your home screen; it opens full-screen like a native app.
+
+**On the same Wi‑Fi as your computer**
+
+1. Start Streamlit (already listens on all interfaces via `address = "0.0.0.0"` in `.streamlit/config.toml`).
+2. Find your computer’s IP:
+   - Mac: `ipconfig getifaddr en0`
+   - Windows: `ipconfig` → IPv4 Address
+3. On your phone’s browser open: `http://<that-ip>:18501` (e.g. `http://192.168.1.8:18501`).
+
+**Add to home screen**
+
+| Phone | Steps |
+|-------|--------|
+| **iPhone** | Safari → Share → **Add to Home Screen** |
+| **Android** | Chrome → **⋮** → **Install app** or **Add to Home screen** |
+
+On the login page, expand **📱 Install on your phone** for step-by-step help.
+
+**Hosted online** (Streamlit Cloud, your server, Docker): open your public URL and use the same Add to Home Screen steps.
+
+---
 
 ### 3. First login
 
@@ -41,8 +68,6 @@ Sign in, then go to **Account** and change your password.
 2. **Progress** — Enter how far you are on each goal. The dashboard shows completion % and weighted score.
 
 That’s enough to use the app without Telegram.
-
----
 
 ## Tabs
 

@@ -1,10 +1,10 @@
-"""Admin tab: create, list, and delete users."""
+"""Admin tab: create, list, delete users, reset passwords."""
 
 from __future__ import annotations
 
 import streamlit as st
 
-from auth import create_user, delete_user, list_users
+from auth import admin_reset_password, create_user, delete_user, list_users
 from session_auth import current_user_id
 from styles import card_container
 
@@ -46,6 +46,31 @@ def render_users_tab() -> None:
             st.rerun()
         else:
             st.error(message)
+
+    if users:
+        st.divider()
+        st.markdown("#### Reset user password")
+        st.caption("Admin can set a new password without the old one.")
+        reset_candidates = [u for u in users if u["id"] != acting_admin_id]
+        if reset_candidates:
+            reset_by_id = {u["id"]: u for u in reset_candidates}
+            reset_id = st.selectbox(
+                "User",
+                options=[u["id"] for u in reset_candidates],
+                format_func=lambda uid: reset_by_id[uid]["username"],
+                key="admin_reset_user_select",
+            )
+            new_pw = st.text_input("New password", type="password", key="admin_reset_pw")
+            confirm_pw = st.text_input("Confirm password", type="password", key="admin_reset_pw2")
+            if st.button("Reset password", key="admin_reset_btn", use_container_width=True):
+                if new_pw != confirm_pw:
+                    st.error("Passwords do not match.")
+                else:
+                    ok, message = admin_reset_password(reset_id, new_pw)
+                    if ok:
+                        st.success(message)
+                    else:
+                        st.error(message)
 
     if deletable:
         st.divider()

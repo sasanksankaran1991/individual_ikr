@@ -12,6 +12,7 @@ from data import (
     month_summary,
     save_month_goals,
 )
+from reminder_settings import allow_unequal_weightage
 from session_auth import current_user_id
 from styles import card_container
 
@@ -81,12 +82,18 @@ def _ensure_row_widgets(user_id: str, month: str, row: dict) -> None:
     goal_key = f"{prefix}_goal_{gid}"
     target_key = f"{prefix}_target_{gid}"
     weight_key = f"{prefix}_weight_{gid}"
+    cat_key = f"{prefix}_cat_{gid}"
+    notes_key = f"{prefix}_notes_{gid}"
     if goal_key not in st.session_state:
         st.session_state[goal_key] = row.get("goal", "")
     if target_key not in st.session_state:
         st.session_state[target_key] = float(row.get("target", 1.0))
     if weight_key not in st.session_state:
         st.session_state[weight_key] = float(row.get("weightage", 0.0))
+    if cat_key not in st.session_state:
+        st.session_state[cat_key] = row.get("category", "")
+    if notes_key not in st.session_state:
+        st.session_state[notes_key] = row.get("notes", "")
 
 
 def _collect_rows(user_id: str, month: str, rows: list[dict]) -> list[dict]:
@@ -100,6 +107,8 @@ def _collect_rows(user_id: str, month: str, rows: list[dict]) -> list[dict]:
                 "goal": str(st.session_state.get(f"{prefix}_goal_{gid}", "")).strip(),
                 "target": float(st.session_state.get(f"{prefix}_target_{gid}", 0.0)),
                 "weightage": float(st.session_state.get(f"{prefix}_weight_{gid}", 0.0)),
+                "category": str(st.session_state.get(f"{prefix}_cat_{gid}", "")).strip(),
+                "notes": str(st.session_state.get(f"{prefix}_notes_{gid}", "")).strip(),
             }
         )
     return out
@@ -152,6 +161,8 @@ def render_config_tab() -> None:
                     "goal": "",
                     "target": 1.0,
                     "weightage": 0.0,
+                    "category": "",
+                    "notes": "",
                 }
             )
             st.session_state[rows_key] = rows
@@ -194,6 +205,8 @@ def render_config_tab() -> None:
                     format="%.1f",
                     key=f"{prefix}_weight_{gid}",
                 )
+            st.text_input("Category (optional)", key=f"{prefix}_cat_{gid}")
+            st.text_input("Notes (optional)", key=f"{prefix}_notes_{gid}")
             if st.button(
                 "Remove goal",
                 key=f"{prefix}_del_{gid}",
@@ -203,7 +216,7 @@ def render_config_tab() -> None:
 
     if delete_id:
         st.session_state[rows_key] = [r for r in rows if r["id"] != delete_id]
-        for suffix in ("goal", "target", "weight"):
+        for suffix in ("goal", "target", "weight", "cat", "notes"):
             key = f"{prefix}_{suffix}_{delete_id}"
             if key in st.session_state:
                 del st.session_state[key]
@@ -213,8 +226,19 @@ def render_config_tab() -> None:
     named = [r for r in collected if r["goal"]]
     total_weight = sum(r["weightage"] for r in named)
     st.metric("Total weightage", f"{total_weight:.1f}")
-    if named and total_weight != 100.0:
-        st.info("Tip: weightages usually sum to **100** for a balanced monthly score.")
+    weight_ok = abs(total_weight - 100.0) < 0.01
+    if named and not weight_ok:
+        st.warning("Weightages should sum to **100** for a balanced score.")
+        if st.button(
+            "Normalize weightages to 100%",
+            key=f"config_normalize_{user_id}",
+            use_container_width=True,
+        ):
+            scale = 100.0 / total_weight if total_weight > 0 else 0.0
+            for row in named:
+                wkey = f"{prefix}_weight_{row['id']}"
+                st.session_state[wkey] = round(float(st.session_state[wkey]) * scale, 1)
+            st.rerun()
 
     if st.button(
         "Save goals for this month",
@@ -235,13 +259,14 @@ def render_config_tab() -> None:
                 dupes.append(name)
                 continue
             seen_names.add(name_lower)
-
             out_goals.append(
                 {
                     "id": row["id"],
                     "name": name,
                     "target": max(float(row["target"]), 0.0),
                     "weightage": max(float(row["weightage"]), 0.0),
+                    "category": row.get("category", ""),
+                    "notes": row.get("notes", ""),
                 }
             )
 
@@ -250,6 +275,13 @@ def render_config_tab() -> None:
             return
         if not out_goals:
             st.error("Add at least one goal with a non-empty name.")
+            return
+
+        if not weight_ok and not allow_unequal_weightage():
+            st.error(
+                "Total weightage must be 100. Tap **Normalize weightages to 100%**, "
+                "or ask admin to allow unequal weights in Settings."
+            )
             return
 
         save_month_goals(user_id, selected_month, out_goals)
