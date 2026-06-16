@@ -231,6 +231,7 @@ def telegram_send_photo(
     image_bytes: bytes,
     *,
     caption: str | None = None,
+    reply_markup: dict | None = None,
 ) -> None:
     """Send a PNG/JPEG image via sendPhoto."""
     verify: bool | str = _telegram_requests_verify()
@@ -239,6 +240,10 @@ def telegram_send_photo(
     data: dict = {"chat_id": cid}
     if caption:
         data["caption"] = caption[:1024]
+    if reply_markup:
+        import json
+
+        data["reply_markup"] = json.dumps(reply_markup)
     files = {"photo": ("timeline.png", image_bytes, "image/png")}
     while True:
         try:

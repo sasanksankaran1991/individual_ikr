@@ -88,16 +88,16 @@ def build_progress_summary(user_id: str, month_key: str, *, username: str = "") 
             f"{prog:.2f}/{g['target']:.2f} ({pct:.0f}%) "
             f"[{gi['label']}]"
         )
-    lines.append("\n📈 Timeline chart attached above.")
+    lines.append("\nTap G1, G2, … then enter a value (same as 1 5).")
     return "\n".join(lines)
 
 
 def _telegram_update_hint() -> str:
     return (
-        "\n\n✏️ Update here — no need to open the app:\n"
-        "• Send: 1 3.5  (goal number + progress)\n"
-        "• Or: Read: 3  (goal name + progress)\n"
-        "• /status or /goals — refresh list\n"
+        "\n\n✏️ Update from Telegram:\n"
+        "• Tap G1, G2, … then type a value or tap 1 / 5 / 15\n"
+        "• Or send: 1 5  (goal number + value)\n"
+        "• Tap 📊 Goals to refresh status\n"
         "• /help — commands"
     )
 
@@ -155,8 +155,17 @@ def send_telegram_message(
                 progress = fetch_month_progress(user_id, month_key)
                 png = render_timeline_png_bytes(user_id, month_key, goals, progress)
                 if png:
-                    caption_line = message.split("\n", 1)[0][:200]
-                    telegram_send_photo(token, chat_id, png, caption=caption_line)
+                    caption = message[:1024]
+                    telegram_send_photo(
+                        token,
+                        chat_id,
+                        png,
+                        caption=caption,
+                        reply_markup=reply_markup,
+                    )
+                    if len(message) > 1024:
+                        telegram_send_text(token, chat_id, message[1024:])
+                    return True, "Message sent to Telegram."
         telegram_send_text(token, chat_id, message, reply_markup=reply_markup)
     except Exception as exc:
         return False, f"Telegram send failed: {exc}"
