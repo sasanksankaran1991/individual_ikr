@@ -1,0 +1,16 @@
+[client]
+toolbarMode = "minimal"
+
+[theme]
+base = "light"
+primaryColor = "#4f46e5"
+backgroundColor = "#fafafa"
+
+[server]
+# Phone on same Wi‑Fi: http://<your-ip>:18501
+address = "0.0.0.0"
+port = 18501
+enableStaticServing = true
+
+[browser]
+gatherUsageStats = false
