@@ -1,0 +1,23 @@
+# Secrets & local config
+telegram_bot_token.txt
+.env
+.env.*
+
+# Database & personal data (created locally on first run)
+ikr.db
+*.corrupt_*.db
+progress.json
+goals_config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.Python
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

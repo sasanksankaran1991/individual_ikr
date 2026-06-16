@@ -1,0 +1,11 @@
+{
+  "months": {
+    "2026-06": {
+      "goals": {
+        "goal-read-books": 2,
+        "goal-exercise": 8,
+        "goal-learn-skill": 4
+      }
+    }
+  }
+}

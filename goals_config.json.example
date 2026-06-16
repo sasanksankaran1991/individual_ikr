@@ -1,0 +1,26 @@
+{
+  "months": {
+    "2026-06": {
+      "goals": [
+        {
+          "id": "goal-read-books",
+          "name": "Read books",
+          "target": 5,
+          "weightage": 40
+        },
+        {
+          "id": "goal-exercise",
+          "name": "Exercise (hours)",
+          "target": 20,
+          "weightage": 35
+        },
+        {
+          "id": "goal-learn-skill",
+          "name": "Learn a new skill",
+          "target": 10,
+          "weightage": 25
+        }
+      ]
+    }
+  }
+}

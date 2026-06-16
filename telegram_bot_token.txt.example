@@ -1,0 +1,5 @@
+# Copy this file to telegram_bot_token.txt and paste your bot token from @BotFather.
+# Or set TELEGRAM_BOT_TOKEN in the environment instead.
+#
+# Example (replace with your real token):
+# 123456789:ABCdefGHIjklMNOpqrsTUVwxyz

@@ -1,0 +1,209 @@
+"""
+Lightweight Telegram Bot API helpers (requests only).
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+import requests
+
+_ROOT = Path(__file__).resolve().parent.parent
+
+
+def read_telegram_bot_token_from_file() -> str:
+    """First non-empty, non-# line from telegram_bot_token.txt in the project root."""
+    p = _ROOT / "telegram_bot_token.txt"
+    if not p.is_file():
+        return ""
+    try:
+        text = p.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        s = line.strip()
+        if s and not s.startswith("#"):
+            return s
+    return ""
+
+
+def resolve_bot_token() -> str:
+    return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip() or read_telegram_bot_token_from_file()
+
+
+def _telegram_requests_verify():
+    v = os.environ.get("TELEGRAM_SSL_VERIFY", "1").strip().lower()
+    if v in ("0", "false", "no", "off"):
+        print(
+            "Warning: TELEGRAM_SSL_VERIFY=0 — TLS verification disabled for Telegram API.",
+            file=sys.stderr,
+        )
+        return False
+    try:
+        import certifi
+
+        return certifi.where()
+    except Exception:
+        return True
+
+
+def parse_telegram_chat_id(raw: str) -> str | int:
+    s = str(raw).strip()
+    if not s:
+        return s
+    if s.lstrip("-").isdigit():
+        try:
+            return int(s)
+        except ValueError:
+            pass
+    return s
+
+
+def _api_get(
+    bot_token: str,
+    method: str,
+    *,
+    params: dict | None = None,
+    verify: bool | str | None = None,
+) -> dict:
+    if verify is None:
+        verify = _telegram_requests_verify()
+    while True:
+        try:
+            r = requests.get(
+                f"https://api.telegram.org/bot{bot_token}/{method}",
+                params=params or {},
+                timeout=60,
+                verify=verify,
+            )
+            data = r.json()
+            if not data.get("ok"):
+                raise RuntimeError(data.get("description", data))
+            return data
+        except (
+            requests.exceptions.SSLError,
+            requests.exceptions.ConnectionError,
+        ) as err:
+            if verify is False:
+                raise
+            es = str(err).lower()
+            if "ssl" not in es and "certificate" not in es:
+                raise
+            verify = False
+
+
+def fetch_bot_info() -> dict | None:
+    """Return bot username/name if token is configured."""
+    token = resolve_bot_token()
+    if not token:
+        return None
+    try:
+        data = _api_get(token, "getMe")
+        return data.get("result") or {}
+    except Exception:
+        return None
+
+
+def fetch_recent_chat_ids() -> tuple[list[dict], str | None]:
+    """
+    Chat ids from recent messages sent TO the bot.
+    Returns (entries, error_message).
+    """
+    token = resolve_bot_token()
+    if not token:
+        return [], "Bot token is not configured in telegram_bot_token.txt."
+
+    try:
+        data = _api_get(token, "getUpdates")
+    except Exception as exc:
+        return [], f"Could not reach Telegram: {exc}"
+
+    seen: set[int | str] = set()
+    entries: list[dict] = []
+    for update in data.get("result") or []:
+        msg = update.get("message") or update.get("edited_message") or {}
+        chat = msg.get("chat") or {}
+        chat_id = chat.get("id")
+        if chat_id is None or chat_id in seen:
+            continue
+        seen.add(chat_id)
+        sender = msg.get("from") or {}
+        label_parts = [
+            str(p)
+            for p in (
+                sender.get("first_name"),
+                sender.get("last_name"),
+                f"@{sender.get('username')}" if sender.get("username") else None,
+            )
+            if p
+        ]
+        entries.append(
+            {
+                "chat_id": str(chat_id),
+                "chat_type": str(chat.get("type") or ""),
+                "label": " ".join(label_parts) or str(chat.get("title") or "Unknown"),
+            }
+        )
+    return entries, None
+
+
+def fetch_updates(*, offset: int | None = None) -> tuple[list[dict], str | None]:
+    """Fetch bot updates. Pass offset to acknowledge earlier updates."""
+    token = resolve_bot_token()
+    if not token:
+        return [], "Bot token is not configured."
+
+    params: dict = {"timeout": 0}
+    if offset is not None:
+        params["offset"] = offset
+
+    try:
+        data = _api_get(token, "getUpdates", params=params)
+        return data.get("result") or [], None
+    except Exception as exc:
+        return [], f"Could not reach Telegram: {exc}"
+
+
+def telegram_send_text(
+    bot_token: str,
+    chat_id: str,
+    text: str,
+    *,
+    parse_mode: str | None = None,
+) -> None:
+    """sendMessage in 4096-char chunks (Telegram limit)."""
+    verify: bool | str = _telegram_requests_verify()
+    cid = parse_telegram_chat_id(chat_id)
+    base = f"https://api.telegram.org/bot{bot_token}"
+    max_len = 4096
+    for i in range(0, len(text), max_len):
+        chunk = text[i : i + max_len]
+        while True:
+            try:
+                payload: dict = {"chat_id": cid, "text": chunk}
+                if parse_mode:
+                    payload["parse_mode"] = parse_mode
+                r = requests.post(
+                    f"{base}/sendMessage",
+                    json=payload,
+                    timeout=60,
+                    verify=verify,
+                )
+                j = r.json()
+                if not j.get("ok"):
+                    raise RuntimeError(
+                        f"Telegram sendMessage: {j.get('description', j)}"
+                    )
+                break
+            except (
+                requests.exceptions.SSLError,
+                requests.exceptions.ConnectionError,
+            ) as err:
+                if verify is False:
+                    raise
+                es = str(err).lower()
+                if "ssl" not in es and "certificate" not in es:
+                    raise
+                verify = False
