@@ -2,87 +2,13 @@
 
 from __future__ import annotations
 
-import calendar
-from datetime import date
-
 import altair as alt
 import pandas as pd
 import streamlit as st
 
-from config import (
-    current_month_key,
-    format_month_label,
-    goal_completion_pct,
-    pace_info,
-    parse_month_key,
-    weighted_score,
-)
-from data import fetch_month_goals, fetch_month_progress, list_configured_months
+from month_history import finalize_due_months, load_history_records
 from session_auth import current_user_id
 from styles import card_container
-
-
-def _month_end_date(month_key: str) -> date | None:
-    parsed = parse_month_key(month_key)
-    if not parsed:
-        return None
-    year, month = parsed
-    last_day = calendar.monthrange(year, month)[1]
-    return date(year, month, last_day)
-
-
-def _status_date_for_month(month_key: str) -> date:
-    current = current_month_key()
-    if month_key == current:
-        return date.today()
-    end = _month_end_date(month_key)
-    return end or date.today()
-
-
-def _build_month_record(user_id: str, month_key: str) -> dict:
-    goals = fetch_month_goals(user_id, month_key)
-    progress = fetch_month_progress(user_id, month_key)
-    earned, total_weight = weighted_score(goals, progress)
-    overall_pct = (earned / total_weight * 100.0) if total_weight > 0 else 0.0
-    on_date = _status_date_for_month(month_key)
-    overall_info = pace_info(overall_pct, month_key, on_date=on_date)
-
-    goal_rows: list[dict] = []
-    completed = 0
-    for g in goals:
-        prog = progress.get(g["id"], 0.0)
-        pct = goal_completion_pct(prog, g["target"])
-        info = pace_info(pct, month_key, on_date=on_date)
-        met = pct >= 100.0
-        if met:
-            completed += 1
-        goal_rows.append(
-            {
-                "name": g["name"],
-                "category": g.get("category", ""),
-                "target": g["target"],
-                "progress": prog,
-                "weightage": g["weightage"],
-                "completion_pct": pct,
-                "status": info["label"],
-                "tone": info["tone"],
-                "met_target": met,
-            }
-        )
-
-    return {
-        "month_key": month_key,
-        "label": format_month_label(month_key),
-        "is_current": month_key == current_month_key(),
-        "goal_count": len(goals),
-        "goals_completed": completed,
-        "overall_pct": overall_pct,
-        "earned": earned,
-        "total_weight": total_weight,
-        "overall_status": overall_info["label"],
-        "overall_tone": overall_info["tone"],
-        "goals": goal_rows,
-    }
 
 
 def _pace_pill(tone: str, label: str) -> str:
@@ -126,9 +52,10 @@ def _render_trend_chart(records: list[dict]) -> None:
 def _render_overview_table(records: list[dict]) -> None:
     rows = []
     for r in records:
+        finalized = " · locked" if r.get("is_finalized") else ""
         rows.append(
             {
-                "Month": r["label"] + (" · current" if r["is_current"] else ""),
+                "Month": r["label"] + (" · current" if r["is_current"] else "") + finalized,
                 "Goals": r["goal_count"],
                 "Completed": f"{r['goals_completed']}/{r['goal_count']}",
                 "Overall %": f"{r['overall_pct']:.0f}%",
@@ -145,11 +72,15 @@ def _render_overview_table(records: list[dict]) -> None:
 
 def _render_month_detail(record: dict) -> None:
     tone = record["overall_tone"]
+    as_of = record.get("score_as_of_date", "")
+    as_of_note = f" · scored as of {as_of}" if as_of else ""
+    finalized_note = " · **finalized**" if record.get("is_finalized") else " · live"
     st.markdown(
         f'{_pace_pill(tone, record["overall_status"])} '
         f'Overall **{record["overall_pct"]:.0f}%** '
         f'({record["earned"]:.1f}/{record["total_weight"]:.1f} weighted) · '
-        f'{record["goals_completed"]}/{record["goal_count"]} goals at 100%',
+        f'{record["goals_completed"]}/{record["goal_count"]} goals at 100%'
+        f"{as_of_note}{finalized_note}",
         unsafe_allow_html=True,
     )
 
@@ -163,7 +94,7 @@ def _render_month_detail(record: dict) -> None:
             {
                 "Goal": g["name"],
                 "Category": g["category"] or "—",
-                "Progress": f"{g['progress']:.2f} / {g['target']:.2f}",
+                "Progress": g.get("progress_display", f"{g['progress']:.2f} / {g['target']:.2f}"),
                 "Done %": f"{g['completion_pct']:.0f}%",
                 "Weight": f"{g['weightage']:.0f}%",
                 "Status": g["status"],
@@ -173,37 +104,46 @@ def _render_month_detail(record: dict) -> None:
     st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
 
 
-@st.cache_data(ttl=120, show_spinner=False)
-def _load_history_records(user_id: str) -> tuple[dict, ...]:
-    months = list_configured_months(user_id)
-    return tuple(_build_month_record(user_id, mk) for mk in months)
-
-
 def render_history_tab() -> None:
     user_id = current_user_id()
 
     st.markdown("### History")
     st.caption(
         "Month-on-month view of all configured months. "
-        "Past months use end-of-month status; the current month uses today's pace."
+        "Locked months use stored final scores; the current month (and grace period) update live."
     )
 
-    months = list_configured_months(user_id)
-    if not months:
+    finalized = 0
+    if st.session_state.pop("_history_force_finalize", False):
+        finalized = finalize_due_months(user_id)
+    elif not st.session_state.get("_history_finalized"):
+        st.session_state["_history_finalized"] = True
+        finalized = finalize_due_months(user_id)
+
+    head_l, head_r = st.columns([4, 1])
+    with head_r:
+        if st.button("Refresh", key="history_refresh_btn", use_container_width=True):
+            st.session_state["_history_force_finalize"] = True
+            st.rerun()
+
+    records = load_history_records(user_id)
+    if not records:
         st.warning("No historical data yet. Add goals in the **Config** tab.")
         return
 
-    records = list(_load_history_records(user_id))
+    if finalized:
+        st.caption(f"Finalized {finalized} locked month(s) into history snapshots.")
 
     scores = [r["overall_pct"] for r in records if r["goal_count"] > 0]
-    best = max(records, key=lambda r: r["overall_pct"])
+    scored = [r for r in records if r["goal_count"] > 0]
+    best = max(scored, key=lambda r: r["overall_pct"]) if scored else None
     total_goals = sum(r["goal_count"] for r in records)
     total_met = sum(r["goals_completed"] for r in records)
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Months", len(records))
     m2.metric("Avg overall", f"{(sum(scores) / len(scores)):.0f}%" if scores else "—")
-    m3.metric("Best month", best["label"] if scores else "—")
+    m3.metric("Best month", best["label"] if best else "—")
     m4.metric("Goals at 100%", f"{total_met}/{total_goals}")
 
     with card_container():

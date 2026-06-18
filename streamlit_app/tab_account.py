@@ -1,8 +1,6 @@
-"""Account tab: password and Telegram settings."""
+"""Account tab — profile and Telegram (identical for every user)."""
 
 from __future__ import annotations
-
-from datetime import timedelta
 
 import streamlit as st
 
@@ -14,25 +12,19 @@ from styles import card_container
 from telegram_connect import create_connect_link, poll_auto_connect
 
 
-def _telegram_poll_fragment(user_id: str) -> None:
-    """Auto-poll Telegram; rerun app when linked."""
-    status, message = poll_auto_connect(user_id)
-    if status == "connected":
-        st.rerun()
-    elif status == "error":
-        st.error(message)
-    else:
-        st.info("Tap **Start** in Telegram — linking automatically…")
-
-
 def render_account_tab() -> None:
-    st.markdown("### Account")
-    st.caption("Manage your sign-in credentials and Telegram notifications.")
-
     user_id = current_user_id()
 
+    st.markdown(
+        '<div id="ikr-account-marker" aria-hidden="true" style="display:none"></div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("### Account")
+    st.caption("Manage your profile and Telegram notifications.")
+
     with card_container():
-        st.markdown(f"Signed in as **{current_username()}**")
+        st.markdown("#### Profile")
+        st.caption(f"Signed in as **{current_username()}**")
 
         with st.expander("Change password", expanded=False):
             with st.form("change_password_form", clear_on_submit=True):
@@ -46,12 +38,12 @@ def render_account_tab() -> None:
             if submitted:
                 if new_password != confirm_password:
                     st.error("New passwords do not match.")
-                    return
-                ok, message = change_password(user_id, current_password, new_password)
-                if ok:
-                    st.success(message)
                 else:
-                    st.error(message)
+                    ok, message = change_password(user_id, current_password, new_password)
+                    if ok:
+                        st.success(message)
+                    else:
+                        st.error(message)
 
     tg = get_user_telegram_settings(user_id)
     connected = bool(tg.get("telegram_chat_id") and tg.get("telegram_enabled"))
@@ -69,7 +61,11 @@ def render_account_tab() -> None:
             )
             c1, c2, c3 = st.columns(3)
             with c1:
-                if st.button("Send test summary", key="telegram_send_now_btn", use_container_width=True):
+                if st.button(
+                    "Send test summary",
+                    key="telegram_send_now_btn",
+                    use_container_width=True,
+                ):
                     ok, message = send_summary_to_user(user_id)
                     if ok:
                         st.success(message)
@@ -97,7 +93,11 @@ def render_account_tab() -> None:
                     else:
                         st.info("No new Telegram messages.")
             with c3:
-                if st.button("Disconnect Telegram", key="telegram_disconnect_btn", use_container_width=True):
+                if st.button(
+                    "Disconnect Telegram",
+                    key="telegram_disconnect_btn",
+                    use_container_width=True,
+                ):
                     disconnect_user_telegram(user_id)
                     st.success("Telegram disconnected.")
                     st.rerun()
@@ -123,23 +123,21 @@ def render_account_tab() -> None:
                 if bot_username:
                     st.caption(f"Bot: @{bot_username}")
 
-                # Try immediately, then poll every 5s until linked or error
                 status, message = poll_auto_connect(user_id)
                 if status == "connected":
                     st.rerun()
                 elif status == "error":
                     st.error(message)
                 else:
-                    try:
-                        poll_fn = st.fragment(run_every=timedelta(seconds=5))(
-                            _telegram_poll_fragment
-                        )
-                        poll_fn(user_id)
-                    except TypeError:
-                        # Older Streamlit without fragment run_every
-                        st.info(
-                            "After tapping **Start** in Telegram, refresh this page to finish linking."
-                        )
+                    st.info(
+                        "After tapping **Start** in Telegram, wait a few seconds or refresh "
+                        "this page — linking is checked in the background."
+                    )
+            else:
+                st.warning(
+                    "Telegram is not configured yet. Add your bot token to "
+                    "`telegram_bot_token.txt` to enable notifications."
+                )
 
         if tg.get("last_progress_update_at"):
             st.caption(f"Last progress save: {tg['last_progress_update_at']}")

@@ -64,6 +64,93 @@ def inject_styles() -> None:
             white-space: nowrap !important;
             flex: 0 0 auto !important;
         }
+        /* Inactive tab panels must not bleed through */
+        [data-testid="stTabs"] [role="tabpanel"][hidden],
+        [data-testid="stTabs"] [data-baseweb="tab-panel"][hidden] {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            overflow: hidden !important;
+            pointer-events: none !important;
+        }
+
+        /* Header ⋮ menu — compact icon button */
+        [data-testid="stPopover"] > button {
+            min-height: 2.5rem !important;
+            min-width: 2.5rem !important;
+            padding: 0.35rem 0.5rem !important;
+            border-radius: 8px !important;
+        }
+        /* Icon-only ⋮ — hide empty popover label text */
+        [data-testid="stPopover"] > button [data-testid="stMarkdownContainer"] p {
+            display: none !important;
+        }
+        [data-testid="stPopoverBody"] {
+            min-width: 11rem !important;
+        }
+        [data-testid="stPopoverBody"] .stButton > button {
+            justify-content: flex-start !important;
+            text-align: left !important;
+        }
+
+        /* Lazy tab nav — button rows styled like tabs */
+        div[data-testid="column"] .stButton > button[kind="primary"],
+        div[data-testid="column"] .stButton > button[kind="secondary"],
+        .stMainBlockContainer .stButton > button[kind="primary"],
+        .stMainBlockContainer .stButton > button[kind="secondary"] {
+            min-height: 2.75rem !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+        }
+        div[data-testid="column"] .stButton > button[kind="primary"],
+        .stMainBlockContainer .stButton > button[kind="primary"] {
+            border-bottom: 2px solid rgb(255, 75, 75) !important;
+        }
+
+        /* Hide stale login ghosts */
+        [data-stale="true"]:has(#ikr-login-marker),
+        [data-stale="true"]:has(input[aria-label="Username"]),
+        [data-stale="true"]:has(input[autocomplete="username"]) {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            max-height: 0 !important;
+            overflow: hidden !important;
+            pointer-events: none !important;
+            opacity: 0 !important;
+        }
+
+        /* Hide stale Progress ghosts when Account/Settings/etc. is active */
+        body:has(#ikr-active-view[data-view="Account"]) [data-stale="true"]:has(#ikr-progress-marker),
+        body:has(#ikr-active-view[data-view="Account"]) [data-stale="true"]:has([data-testid="stAltairChart"]),
+        body:has(#ikr-active-view[data-view="Settings"]) [data-stale="true"]:has(#ikr-progress-marker),
+        body:has(#ikr-active-view[data-view="Settings"]) [data-stale="true"]:has([data-testid="stAltairChart"]),
+        body:has(#ikr-active-view[data-view="Users"]) [data-stale="true"]:has(#ikr-progress-marker),
+        body:has(#ikr-active-view[data-view="Users"]) [data-stale="true"]:has([data-testid="stAltairChart"]),
+        body:has(#ikr-active-view[data-view="Config"]) [data-stale="true"]:has(#ikr-progress-marker),
+        body:has(#ikr-active-view[data-view="History"]) [data-stale="true"]:has(#ikr-progress-marker) {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            max-height: 0 !important;
+            overflow: hidden !important;
+            pointer-events: none !important;
+            opacity: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        /* Section nav (segmented control) — full width, scroll on mobile */
+        [data-testid="stSegmentedControl"] {
+            width: 100% !important;
+            margin-bottom: 0.75rem !important;
+        }
+        [data-testid="stSegmentedControl"] > div {
+            width: 100% !important;
+            overflow-x: auto !important;
+            flex-wrap: nowrap !important;
+            -webkit-overflow-scrolling: touch;
+        }
 
         /* Full-width primary actions on small screens */
         .ikr-goal-title {

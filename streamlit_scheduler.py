@@ -8,6 +8,7 @@ import time
 _lock = threading.Lock()
 _running = False
 _last_finished = 0.0
+_loop_started = False
 
 
 def schedule_background_tick(min_interval_seconds: int, *, force: bool = False) -> None:
@@ -35,3 +36,19 @@ def schedule_background_tick(min_interval_seconds: int, *, force: bool = False) 
             _lock.release()
 
     threading.Thread(target=_work, daemon=True, name="ikr-scheduler").start()
+
+
+def start_background_loop(min_interval_seconds: int) -> None:
+    """Start a daemon loop so Telegram polling works without st.fragment reruns."""
+    global _loop_started
+    interval = max(30, int(min_interval_seconds))
+    if _loop_started:
+        return
+    _loop_started = True
+
+    def _loop() -> None:
+        while True:
+            schedule_background_tick(interval)
+            time.sleep(interval)
+
+    threading.Thread(target=_loop, daemon=True, name="ikr-scheduler-loop").start()

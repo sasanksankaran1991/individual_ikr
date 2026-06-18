@@ -97,6 +97,13 @@ AUTH_SESSION_COOKIE = "ikr_auth"
 SCHEDULER_DAILY_REMINDER_META_KEY = "scheduler_daily_reminder_date"
 SCHEDULER_LAST_POLL_META_KEY = "scheduler_last_poll_at"
 
+# Goal types
+GOAL_TYPE_ACCUMULATE = "accumulate"
+GOAL_TYPE_REDUCE = "reduce"
+GOAL_TYPE_DAILY = "daily"
+DAILY_MODE_DO = "do"
+DAILY_MODE_AVOID = "avoid"
+
 
 def new_goal_id() -> str:
     return str(uuid.uuid4())
@@ -112,8 +119,25 @@ def goal_completion_pct(progress: float, target: float) -> float:
     return min(100.0, (progress / target) * 100.0)
 
 
-def weighted_score(goals: list[dict], progress_by_id: dict[str, float]) -> tuple[float, float]:
+def weighted_score(
+    goals: list[dict],
+    progress_by_id: dict[str, float],
+    *,
+    month_key: str | None = None,
+    daily_logs_by_goal: dict[str, dict[str, str]] | None = None,
+    on_date=None,
+) -> tuple[float, float]:
     """Return (earned_weighted_score, total_weightage)."""
+    if month_key is not None:
+        from goal_scoring import weighted_score_typed
+
+        return weighted_score_typed(
+            goals,
+            progress_by_id,
+            month_key=month_key,
+            daily_logs_by_goal=daily_logs_by_goal,
+            on_date=on_date,
+        )
     total_weight = sum(g["weightage"] for g in goals)
     if total_weight <= 0:
         return 0.0, 0.0
@@ -183,3 +207,99 @@ def is_last_day_of_month(on_date: date | None = None) -> bool:
 
     on_date = on_date or date.today()
     return on_date.day == calendar.monthrange(on_date.year, on_date.month)[1]
+
+
+# Grace period in the *following* month for editing a closed month.
+CONFIG_EDIT_GRACE_DAY = 15   # goals editable through this day (e.g. May → through 15 Jun)
+PROGRESS_EDIT_GRACE_DAY = 10  # progress editable through this day (e.g. May → through 10 Jun)
+PROGRESS_LOCK_WARNING_DAYS = 2  # remind when this many days remain before progress lock
+
+
+def previous_month_key(on_date: date | None = None) -> str | None:
+    on_date = on_date or date.today()
+    if on_date.month == 1:
+        return month_key(on_date.year - 1, 12)
+    return month_key(on_date.year, on_date.month - 1)
+
+
+def progress_lock_days_remaining(month_key: str, on_date: date | None = None) -> int | None:
+    """Days until progress lock (0 = last editable day). None if already locked."""
+    on_date = on_date or date.today()
+    deadline = progress_edit_deadline(month_key)
+    if not deadline or on_date > deadline:
+        return None
+    return (deadline - on_date).days
+
+
+def _month_after(month_key: str) -> tuple[int, int] | None:
+    parsed = parse_month_key(month_key)
+    if not parsed:
+        return None
+    year, month = parsed
+    if month == 12:
+        return year + 1, 1
+    return year, month + 1
+
+
+def config_edit_deadline(month_key: str) -> date | None:
+    """Last calendar day (inclusive) goals for `month_key` may be created or changed."""
+    from reminder_settings import get_config_edit_grace_day
+
+    nxt = _month_after(month_key)
+    if not nxt:
+        return None
+    year, month = nxt
+    return date(year, month, get_config_edit_grace_day())
+
+
+def progress_edit_deadline(month_key: str) -> date | None:
+    """Last calendar day (inclusive) progress for `month_key` may be updated."""
+    from reminder_settings import get_progress_edit_grace_day
+
+    nxt = _month_after(month_key)
+    if not nxt:
+        return None
+    year, month = nxt
+    return date(year, month, get_progress_edit_grace_day())
+
+
+def is_config_editable(month_key: str, on_date: date | None = None) -> bool:
+    on_date = on_date or date.today()
+    deadline = config_edit_deadline(month_key)
+    if deadline is None:
+        return True
+    return on_date <= deadline
+
+
+def is_progress_editable(month_key: str, on_date: date | None = None) -> bool:
+    on_date = on_date or date.today()
+    deadline = progress_edit_deadline(month_key)
+    if deadline is None:
+        return True
+    return on_date <= deadline
+
+
+def config_edit_status(month_key: str, on_date: date | None = None) -> tuple[bool, str]:
+    if is_config_editable(month_key, on_date):
+        return True, ""
+    deadline = config_edit_deadline(month_key)
+    label = format_month_label(month_key)
+    if deadline:
+        return False, (
+            f"Goals for {label} are locked after "
+            f"{deadline.strftime('%d %b %Y')}. View only."
+        )
+    return False, f"Goals for {label} are locked."
+
+
+def progress_edit_status(month_key: str, on_date: date | None = None) -> tuple[bool, str]:
+    if is_progress_editable(month_key, on_date):
+        return True, ""
+    deadline = progress_edit_deadline(month_key)
+    label = format_month_label(month_key)
+    if deadline:
+        return False, (
+            f"Progress for {label} is locked after "
+            f"{deadline.strftime('%d %b %Y')}. View only."
+        )
+    return False, f"Progress for {label} is locked."

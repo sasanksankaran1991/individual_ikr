@@ -102,6 +102,13 @@ def login(user: dict, *, remember: bool = True) -> None:
         token = create_auth_session(user["id"], days=AUTH_SESSION_DAYS)
         st.session_state[PENDING_COOKIE_TOKEN] = token
     _apply_user_session(user, token=token)
+    _clear_login_widget_state()
+    st.session_state["_auth_ui_epoch"] = int(st.session_state.get("_auth_ui_epoch", 0)) + 1
+    st.session_state.pop("ikr_account_section", None)
+    st.session_state.pop("ikr_admin_view", None)
+    st.session_state.pop("_cookie_saved", None)
+    st.session_state.pop("ikr_view_gen", None)
+    _clear_admin_widget_state()
 
 
 def persist_login_cookie(cookie_manager) -> bool:
@@ -173,6 +180,11 @@ def logout(cookie_manager=None) -> None:
         if key in st.session_state:
             del st.session_state[key]
     _clear_user_scoped_widget_state()
+    _clear_admin_widget_state()
+    st.session_state.pop("ikr_account_section", None)
+    st.session_state.pop("ikr_admin_view", None)
+    st.session_state.pop("_cookie_saved", None)
+    st.session_state.pop("ikr_view_gen", None)
 
 
 def _clear_user_scoped_widget_state() -> None:
@@ -184,3 +196,28 @@ def _clear_user_scoped_widget_state() -> None:
         del st.session_state["config_active_month"]
     if "config_active_user" in st.session_state:
         del st.session_state["config_active_user"]
+
+
+def _clear_admin_widget_state() -> None:
+    """Drop admin-only widget keys so they never bleed across login/logout."""
+    for key in list(st.session_state.keys()):
+        if not isinstance(key, str):
+            continue
+        if key.startswith("admin_") or key.startswith("account_section_"):
+            del st.session_state[key]
+
+
+def _clear_login_widget_state() -> None:
+    """Drop login form widget keys so they cannot bleed into the signed-in layout."""
+    for key in list(st.session_state.keys()):
+        if not isinstance(key, str):
+            continue
+        if (
+            key == "FormSubmitter:login_form-Sign in"
+            or key.startswith("login_form")
+            or key.startswith("Login")
+            or key in ("login_username", "login_password")
+        ):
+            del st.session_state[key]
+    st.session_state.pop("ikr_active_tab", None)
+    st.session_state.pop("ikr_view_gen", None)

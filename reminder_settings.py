@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from auth import get_app_meta, set_app_meta
+from auth import get_all_app_meta, set_app_meta
 from config import (
+    CONFIG_EDIT_GRACE_DAY,
     DAILY_REMINDER_HOUR,
     DAILY_REMINDER_MINUTE,
     DEFAULT_SESSION_TIMEOUT_MINUTES,
     DEFAULT_TIMEZONE,
     EVENING_NUDGE_HOUR,
     EVENING_NUDGE_MINUTE,
+    PROGRESS_EDIT_GRACE_DAY,
     TELEGRAM_POLL_INTERVAL_SECONDS,
 )
 
@@ -25,9 +27,13 @@ META_MID_MONTH_ENABLED = "settings_mid_month_enabled"
 META_END_MONTH_ENABLED = "settings_end_month_enabled"
 META_SESSION_TIMEOUT = "settings_session_timeout_minutes"
 META_ALLOW_UNEQUAL_WEIGHT = "settings_allow_unequal_weightage"
+META_CONFIG_EDIT_GRACE_DAY = "settings_config_edit_grace_day"
+META_PROGRESS_EDIT_GRACE_DAY = "settings_progress_edit_grace_day"
 
 MIN_POLL_INTERVAL = 30
 MAX_POLL_INTERVAL = 600
+MIN_EDIT_GRACE_DAY = 1
+MAX_EDIT_GRACE_DAY = 28
 
 COMMON_TIMEZONES = [
     "",
@@ -42,34 +48,73 @@ COMMON_TIMEZONES = [
     "America/Los_Angeles",
 ]
 
+_SETTINGS_CACHE: dict | None = None
 
-def _int_meta(key: str, default: int) -> int:
-    raw = get_app_meta(key)
+
+def _int_from_meta(meta: dict[str, str], key: str, default: int) -> int:
+    raw = meta.get(key)
     return int(raw) if raw and raw.isdigit() else default
 
 
-def _bool_meta(key: str, *, default: bool = True) -> bool:
-    raw = get_app_meta(key)
+def _bool_from_meta(meta: dict[str, str], key: str, *, default: bool = True) -> bool:
+    raw = meta.get(key)
     if raw is None:
         return default
     return raw != "0"
 
 
+def _invalidate_settings_cache() -> None:
+    global _SETTINGS_CACHE
+    _SETTINGS_CACHE = None
+
+
 def get_reminder_settings() -> dict:
-    return {
-        "reminder_hour": _int_meta(META_REMINDER_HOUR, DAILY_REMINDER_HOUR),
-        "reminder_minute": _int_meta(META_REMINDER_MINUTE, DAILY_REMINDER_MINUTE),
-        "poll_interval_seconds": _int_meta(META_POLL_INTERVAL, TELEGRAM_POLL_INTERVAL_SECONDS),
-        "reminders_enabled": _bool_meta(META_REMINDERS_ENABLED, default=True),
-        "timezone": get_app_meta(META_TIMEZONE) or DEFAULT_TIMEZONE,
-        "evening_nudge_enabled": _bool_meta(META_EVENING_ENABLED, default=False),
-        "evening_nudge_hour": _int_meta(META_EVENING_HOUR, EVENING_NUDGE_HOUR),
-        "evening_nudge_minute": _int_meta(META_EVENING_MINUTE, EVENING_NUDGE_MINUTE),
-        "mid_month_enabled": _bool_meta(META_MID_MONTH_ENABLED, default=True),
-        "end_month_enabled": _bool_meta(META_END_MONTH_ENABLED, default=True),
-        "session_timeout_minutes": _int_meta(META_SESSION_TIMEOUT, DEFAULT_SESSION_TIMEOUT_MINUTES),
-        "allow_unequal_weightage": _bool_meta(META_ALLOW_UNEQUAL_WEIGHT, default=False),
+    global _SETTINGS_CACHE
+    if _SETTINGS_CACHE is not None:
+        return dict(_SETTINGS_CACHE)
+
+    meta = get_all_app_meta()
+    _SETTINGS_CACHE = {
+        "reminder_hour": _int_from_meta(meta, META_REMINDER_HOUR, DAILY_REMINDER_HOUR),
+        "reminder_minute": _int_from_meta(meta, META_REMINDER_MINUTE, DAILY_REMINDER_MINUTE),
+        "poll_interval_seconds": _int_from_meta(
+            meta, META_POLL_INTERVAL, TELEGRAM_POLL_INTERVAL_SECONDS
+        ),
+        "reminders_enabled": _bool_from_meta(meta, META_REMINDERS_ENABLED, default=True),
+        "timezone": meta.get(META_TIMEZONE) or DEFAULT_TIMEZONE,
+        "evening_nudge_enabled": _bool_from_meta(meta, META_EVENING_ENABLED, default=False),
+        "evening_nudge_hour": _int_from_meta(meta, META_EVENING_HOUR, EVENING_NUDGE_HOUR),
+        "evening_nudge_minute": _int_from_meta(meta, META_EVENING_MINUTE, EVENING_NUDGE_MINUTE),
+        "mid_month_enabled": _bool_from_meta(meta, META_MID_MONTH_ENABLED, default=True),
+        "end_month_enabled": _bool_from_meta(meta, META_END_MONTH_ENABLED, default=True),
+        "session_timeout_minutes": _int_from_meta(
+            meta, META_SESSION_TIMEOUT, DEFAULT_SESSION_TIMEOUT_MINUTES
+        ),
+        "allow_unequal_weightage": _bool_from_meta(
+            meta, META_ALLOW_UNEQUAL_WEIGHT, default=False
+        ),
+        "config_edit_grace_day": _int_from_meta(
+            meta, META_CONFIG_EDIT_GRACE_DAY, CONFIG_EDIT_GRACE_DAY
+        ),
+        "progress_edit_grace_day": _int_from_meta(
+            meta, META_PROGRESS_EDIT_GRACE_DAY, PROGRESS_EDIT_GRACE_DAY
+        ),
     }
+    return dict(_SETTINGS_CACHE)
+
+
+def get_config_edit_grace_day() -> int:
+    return max(
+        MIN_EDIT_GRACE_DAY,
+        min(MAX_EDIT_GRACE_DAY, get_reminder_settings()["config_edit_grace_day"]),
+    )
+
+
+def get_progress_edit_grace_day() -> int:
+    return max(
+        MIN_EDIT_GRACE_DAY,
+        min(MAX_EDIT_GRACE_DAY, get_reminder_settings()["progress_edit_grace_day"]),
+    )
 
 
 def get_session_timeout_minutes() -> int:
@@ -94,6 +139,8 @@ def save_reminder_settings(
     end_month_enabled: bool = True,
     session_timeout_minutes: int = DEFAULT_SESSION_TIMEOUT_MINUTES,
     allow_unequal_weightage: bool = False,
+    config_edit_grace_day: int = CONFIG_EDIT_GRACE_DAY,
+    progress_edit_grace_day: int = PROGRESS_EDIT_GRACE_DAY,
 ) -> tuple[bool, str]:
     if not 0 <= reminder_hour <= 23:
         return False, "Reminder hour must be between 0 and 23."
@@ -110,6 +157,16 @@ def save_reminder_settings(
         return False, "Evening nudge minute must be between 0 and 59."
     if not 5 <= session_timeout_minutes <= 10080:
         return False, "Session timeout must be between 5 and 10080 minutes (7 days)."
+    if not MIN_EDIT_GRACE_DAY <= config_edit_grace_day <= MAX_EDIT_GRACE_DAY:
+        return False, (
+            f"Goal config grace day must be between "
+            f"{MIN_EDIT_GRACE_DAY} and {MAX_EDIT_GRACE_DAY}."
+        )
+    if not MIN_EDIT_GRACE_DAY <= progress_edit_grace_day <= MAX_EDIT_GRACE_DAY:
+        return False, (
+            f"Progress grace day must be between "
+            f"{MIN_EDIT_GRACE_DAY} and {MAX_EDIT_GRACE_DAY}."
+        )
 
     tz = timezone.strip()
     if tz:
@@ -132,4 +189,7 @@ def save_reminder_settings(
     set_app_meta(META_END_MONTH_ENABLED, "1" if end_month_enabled else "0")
     set_app_meta(META_SESSION_TIMEOUT, str(session_timeout_minutes))
     set_app_meta(META_ALLOW_UNEQUAL_WEIGHT, "1" if allow_unequal_weightage else "0")
+    set_app_meta(META_CONFIG_EDIT_GRACE_DAY, str(config_edit_grace_day))
+    set_app_meta(META_PROGRESS_EDIT_GRACE_DAY, str(progress_edit_grace_day))
+    _invalidate_settings_cache()
     return True, "Settings saved."

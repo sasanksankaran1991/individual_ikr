@@ -4,16 +4,31 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from auth import get_app_meta, list_telegram_notification_users, list_users
+from auth import get_app_meta, list_telegram_notification_users, list_users, set_app_meta
 from config import SCHEDULER_DAILY_REMINDER_META_KEY, SCHEDULER_LAST_POLL_META_KEY
 from notifiers.telegram_core import fetch_bot_info, resolve_bot_token
 from reminder_settings import get_reminder_settings
+
+META_BOT_USERNAME = "telegram_bot_username"
+
+
+def _cached_bot_username() -> str:
+    """Avoid blocking the UI on every render; refresh at most once per hour."""
+    cached = (get_app_meta(META_BOT_USERNAME) or "").strip()
+    if cached:
+        return cached
+    if not resolve_bot_token():
+        return ""
+    bot = fetch_bot_info()
+    username = (bot or {}).get("username", "")
+    if username:
+        set_app_meta(META_BOT_USERNAME, username)
+    return username or ""
 
 
 def get_scheduler_status() -> dict:
     settings = get_reminder_settings()
     token_ok = bool(resolve_bot_token())
-    bot = fetch_bot_info() if token_ok else None
     tg_users = list_telegram_notification_users()
     last_poll = get_app_meta(SCHEDULER_LAST_POLL_META_KEY) or "Never"
     last_daily = get_app_meta(SCHEDULER_DAILY_REMINDER_META_KEY) or "Never"
@@ -24,7 +39,7 @@ def get_scheduler_status() -> dict:
 
     return {
         "telegram_configured": token_ok,
-        "bot_username": (bot or {}).get("username", ""),
+        "bot_username": _cached_bot_username() if token_ok else "",
         "last_poll_at": last_poll,
         "last_daily_reminder_date": last_daily,
         "next_daily_reminder": next_reminder,

@@ -13,15 +13,19 @@ from auth import (
 )
 from config import (
     MID_MONTH_REMINDER_DAY,
+    PROGRESS_LOCK_WARNING_DAYS,
     current_month_key,
     format_month_label,
-    goal_completion_pct,
     is_last_day_of_month,
     month_pace_fraction,
     pace_info,
+    previous_month_key,
+    progress_edit_deadline,
+    progress_lock_days_remaining,
     weighted_score,
 )
-from data import fetch_month_goals, fetch_month_progress, init_db
+from data import fetch_daily_log, fetch_month_goals, fetch_month_progress, init_db
+from goal_scoring import goal_completion_for_type, goal_progress_display
 from notifiers.telegram_core import resolve_bot_token, telegram_send_photo, telegram_send_text
 from progress_timeline import render_timeline_png_bytes
 
@@ -30,6 +34,7 @@ KIND_STALE_PROGRESS = "stale_progress"
 KIND_MID_MONTH = "mid_month"
 KIND_END_MONTH = "end_month"
 KIND_EVENING_NUDGE = "evening_nudge"
+KIND_PROGRESS_LOCK = "progress_lock"
 
 
 def _today_str() -> str:
@@ -64,7 +69,10 @@ def build_progress_summary(user_id: str, month_key: str, *, username: str = "") 
         )
 
     progress = fetch_month_progress(user_id, month_key)
-    earned, total_weight = weighted_score(goals, progress)
+    daily_logs = fetch_daily_log(user_id, month_key)
+    earned, total_weight = weighted_score(
+        goals, progress, month_key=month_key, daily_logs_by_goal=daily_logs
+    )
     overall_pct = (earned / total_weight * 100.0) if total_weight > 0 else 0.0
     overall = pace_info(overall_pct, month_key)
     label = format_month_label(month_key)
@@ -80,13 +88,20 @@ def build_progress_summary(user_id: str, month_key: str, *, username: str = "") 
     ]
     for i, g in enumerate(goals, start=1):
         prog = progress.get(g["id"], 0.0)
-        pct = goal_completion_pct(prog, g["target"])
+        pct = goal_completion_for_type(
+            g,
+            prog,
+            month_key=month_key,
+            daily_entries=daily_logs.get(g["id"]),
+        )
         gi = pace_info(pct, month_key)
         cat = f" [{g['category']}]" if g.get("category") else ""
+        display = goal_progress_display(
+            g, prog, month_key=month_key, daily_entries=daily_logs.get(g["id"])
+        )
         lines.append(
             f"{i}. {_pace_emoji(gi['tone'])} {g['name']}{cat}: "
-            f"{prog:.2f}/{g['target']:.2f} ({pct:.0f}%) "
-            f"[{gi['label']}]"
+            f"{display} ({pct:.0f}%) [{gi['label']}]"
         )
     lines.append("\nSend /goals when you want the chart. Updates reply with text only.")
     return "\n".join(lines)
@@ -97,6 +112,7 @@ def _telegram_update_hint() -> str:
         "\n\n✏️ Update from Telegram:\n"
         "• Send: 1 5  (set value)\n"
         "• Send: 1 +3  or  1 -2  (add / subtract)\n"
+        "• Daily goals: 1 yes  ·  1 no  ·  1 2026-06-10 yes (backdate)\n"
         "• Or: Read: 3  (goal name + value)\n"
         "• /goals — refresh list\n"
         "• /help — commands"
@@ -133,6 +149,60 @@ def build_end_month_report(user_id: str, month_key: str, *, username: str = "") 
         f"Final progress for the month:\n\n"
         f"{summary}"
     )
+
+
+def build_progress_lock_reminder(
+    user_id: str,
+    month_key: str,
+    days_left: int,
+    *,
+    username: str = "",
+) -> str:
+    """Remind user to update progress before the grace window closes."""
+    label = format_month_label(month_key)
+    who = f"{username} — " if username else ""
+    deadline = progress_edit_deadline(month_key)
+    deadline_txt = deadline.strftime("%d %b %Y") if deadline else "soon"
+
+    if days_left <= 0:
+        urgency = f"⚠️ Today is the **last day** to update progress for {label}."
+    elif days_left == 1:
+        urgency = f"⚠️ **1 day left** to update progress for {label}."
+    else:
+        urgency = f"⚠️ **{days_left} days left** to update progress for {label}."
+
+    goals = fetch_month_goals(user_id, month_key)
+    progress = fetch_month_progress(user_id, month_key)
+    daily_logs = fetch_daily_log(user_id, month_key)
+
+    lines = [
+        f"⏳ IKR progress lock reminder — {who}{label}",
+        urgency,
+        f"Progress locks after **{deadline_txt}**.",
+        "",
+        f"Open **Individual IKR → Progress → {label}** in the app to update.",
+        "(Telegram updates apply to the current month only.)",
+        "",
+    ]
+    if goals:
+        lines.append(f"Current {label} status:")
+        for i, g in enumerate(goals, start=1):
+            prog = progress.get(g["id"], 0.0)
+            pct = goal_completion_for_type(
+                g,
+                prog,
+                month_key=month_key,
+                daily_entries=daily_logs.get(g["id"]),
+            )
+            display = goal_progress_display(
+                g, prog, month_key=month_key, daily_entries=daily_logs.get(g["id"])
+            )
+            lines.append(f"{i}. {g['name']}: {display} ({pct:.0f}%)")
+        lines.append("")
+    lines.append(
+        "In the app: check daily boxes or save numeric progress before the lock date."
+    )
+    return "\n".join(lines)
 
 
 def send_telegram_message(
@@ -338,6 +408,40 @@ def process_end_month_reports(*, dry_run: bool = False) -> list[dict]:
         message = build_end_month_report(user["id"], month_key, username=user["username"])
         results.append(
             _send_user_reminder(user, month_key, KIND_END_MONTH, message, today, dry_run=dry_run)
+        )
+    return results
+
+
+def process_progress_lock_reminders(*, dry_run: bool = False) -> list[dict]:
+    """Remind users when previous month's progress lock is within WARNING_DAYS."""
+    init_db()
+    today_date = date.today()
+    closing_month = previous_month_key(today_date)
+    if not closing_month:
+        return []
+
+    days_left = progress_lock_days_remaining(closing_month, today_date)
+    if days_left is None or days_left > PROGRESS_LOCK_WARNING_DAYS:
+        return []
+
+    today = _today_str()
+    kind = f"{KIND_PROGRESS_LOCK}_{closing_month}"
+    results: list[dict] = []
+
+    for user in list_telegram_notification_users():
+        goals = fetch_month_goals(user["id"], closing_month)
+        if not goals:
+            continue
+        message = build_progress_lock_reminder(
+            user["id"],
+            closing_month,
+            days_left,
+            username=user["username"],
+        )
+        results.append(
+            _send_user_reminder(
+                user, closing_month, kind, message, today, dry_run=dry_run
+            )
         )
     return results
 

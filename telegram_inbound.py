@@ -15,8 +15,20 @@ from auth import (
     init_users_table,
     link_user_telegram,
 )
-from config import current_month_key, format_month_label, goal_completion_pct, weighted_score
-from data import fetch_month_goals, fetch_month_progress, init_db, save_month_progress
+from config import GOAL_TYPE_DAILY, current_month_key, format_month_label
+from data import (
+    fetch_daily_log,
+    fetch_month_goals,
+    fetch_month_progress,
+    init_db,
+    save_daily_entry,
+    save_month_progress,
+)
+from goal_scoring import (
+    goal_completion_for_type,
+    goal_progress_display,
+    weighted_score_typed,
+)
 from notifications import (
     build_progress_summary,
     record_progress_saved,
@@ -30,6 +42,10 @@ _UPDATE_DELTA_RE = re.compile(r"^(\d+)\s*([+-])\s*(\d+(?:\.\d+)?)$")
 # Goal number + absolute value, e.g. "1 5"
 _UPDATE_SET_RE = re.compile(r"^(\d+)\s+(\d+(?:\.\d+)?)$")
 _UPDATE_NAME_RE = re.compile(r"^(.+?)\s*[:=]\s*(\d+(?:\.\d+)?)$")
+_UPDATE_DAILY_RE = re.compile(r"^(\d+)\s+(yes|no|y|n)$", re.IGNORECASE)
+_UPDATE_DAILY_DATE_RE = re.compile(
+    r"^(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(yes|no|y|n)$", re.IGNORECASE
+)
 
 _GOALS_BUTTON = "📊 Goals"
 _HELP_BUTTON = "❓ Help"
@@ -98,10 +114,11 @@ def telegram_help_text() -> str:
     return (
         "IKR bot commands:\n"
         "• /goals or /status — show this month's goals\n"
-        "• 1 5 — set goal 1 to 5\n"
+        "• 1 5 — set goal 1 to 5 (accumulate / reduce)\n"
         "• 1 +3 — add 3 to goal 1\n"
         "• 1 -2 — subtract 2 from goal 1\n"
-        "• /goals — show chart & status (only when you ask)\n"
+        "• 1 yes / 1 no — daily log for today\n"
+        "• 1 2026-06-10 yes — daily log (backdate)\n"
         "• Read: 3 — set by goal name\n"
         "• /help — this message"
     )
@@ -125,7 +142,10 @@ def build_numbered_status(user_id: str, month_key: str | None = None) -> str:
         )
 
     progress = fetch_month_progress(user_id, month_key)
-    earned, total_weight = weighted_score(goals, progress)
+    daily_logs = fetch_daily_log(user_id, month_key)
+    earned, total_weight = weighted_score_typed(
+        goals, progress, month_key=month_key, daily_logs_by_goal=daily_logs
+    )
     overall_pct = (earned / total_weight * 100.0) if total_weight > 0 else 0.0
 
     lines = [
@@ -135,10 +155,18 @@ def build_numbered_status(user_id: str, month_key: str | None = None) -> str:
     ]
     for i, g in enumerate(goals, start=1):
         prog = progress.get(g["id"], 0.0)
-        pct = goal_completion_pct(prog, g["target"])
-        lines.append(f"{i}. {g['name']}: {prog:.2f}/{g['target']:.2f} ({pct:.0f}%)")
+        pct = goal_completion_for_type(
+            g,
+            prog,
+            month_key=month_key,
+            daily_entries=daily_logs.get(g["id"]),
+        )
+        display = goal_progress_display(
+            g, prog, month_key=month_key, daily_entries=daily_logs.get(g["id"])
+        )
+        lines.append(f"{i}. {g['name']}: {display} ({pct:.0f}%)")
     lines.append("")
-    lines.append("Update: 1 5  (set) · 1 +3  (add) · 1 -2  (subtract)")
+    lines.append("Update: 1 5 · 1 +3 · 1 yes/no · 1 YYYY-MM-DD yes")
     return "\n".join(lines)
 
 
@@ -169,16 +197,68 @@ def _find_goal_by_name(goals: list[dict], query: str) -> dict | None:
 
 
 def _apply_goal_progress(user_id: str, goal: dict, value: float, month_key: str) -> str:
+    if goal.get("goal_type") == GOAL_TYPE_DAILY:
+        return "Daily goals use yes/no. Send e.g. 1 yes or 1 no."
+
     progress = fetch_month_progress(user_id, month_key)
     progress[goal["id"]] = max(float(value), 0.0)
-    save_month_progress(user_id, month_key, progress, source="telegram")
+    ok, msg = save_month_progress(user_id, month_key, progress, source="telegram")
+    if not ok:
+        return f"🔒 {msg}"
     record_progress_saved(user_id)
 
-    pct = goal_completion_pct(progress[goal["id"]], goal["target"])
-    return (
-        f"✅ Updated {goal['name']} → {progress[goal['id']]:.2f} "
-        f"/ {goal['target']:.2f} ({pct:.0f}%)"
+    daily_logs = fetch_daily_log(user_id, month_key)
+    pct = goal_completion_for_type(
+        goal,
+        progress[goal["id"]],
+        month_key=month_key,
+        daily_entries=daily_logs.get(goal["id"]),
     )
+    display = goal_progress_display(
+        goal, progress[goal["id"]], month_key=month_key, daily_entries=daily_logs.get(goal["id"])
+    )
+    return f"✅ Updated {goal['name']} → {display} ({pct:.0f}%)"
+
+
+def _normalize_daily_entry(raw: str) -> str:
+    return "yes" if raw.lower() in ("yes", "y") else "no"
+
+
+def _apply_daily_log(
+    user_id: str,
+    goals: list[dict],
+    idx: int,
+    entry: str,
+    month_key: str,
+    log_date: str,
+) -> str:
+    if idx < 1 or idx > len(goals):
+        return f"Goal number must be 1–{len(goals)}. Send /goals to see the list."
+    goal = goals[idx - 1]
+    if goal.get("goal_type") != GOAL_TYPE_DAILY:
+        return f"{goal['name']} is not a daily goal. Use a number, e.g. 1 5."
+
+    ok, msg = save_daily_entry(
+        user_id,
+        month_key,
+        goal["id"],
+        log_date,
+        _normalize_daily_entry(entry),
+        source="telegram",
+    )
+    if not ok:
+        return msg
+
+    record_progress_saved(user_id)
+    daily_logs = fetch_daily_log(user_id, month_key)
+    prog = fetch_month_progress(user_id, month_key).get(goal["id"], 0.0)
+    pct = goal_completion_for_type(
+        goal, prog, month_key=month_key, daily_entries=daily_logs.get(goal["id"])
+    )
+    display = goal_progress_display(
+        goal, prog, month_key=month_key, daily_entries=daily_logs.get(goal["id"])
+    )
+    return f"✅ {goal['name']} {log_date}: {_normalize_daily_entry(entry)} · {display} ({pct:.0f}%)"
 
 
 def _apply_goal_delta(
@@ -228,6 +308,24 @@ def handle_user_message(user_id: str, text: str) -> tuple[str | None, dict | Non
             False,
         )
 
+    m = _UPDATE_DAILY_DATE_RE.match(text)
+    if m:
+        idx = int(m.group(1))
+        log_date = m.group(2)
+        entry = m.group(3)
+        reply = _apply_daily_log(user_id, goals, idx, entry, month_key, log_date)
+        return reply, None, False
+
+    m = _UPDATE_DAILY_RE.match(text)
+    if m:
+        from datetime import date
+
+        idx = int(m.group(1))
+        entry = m.group(2)
+        log_date = date.today().isoformat()
+        reply = _apply_daily_log(user_id, goals, idx, entry, month_key, log_date)
+        return reply, None, False
+
     m = _UPDATE_DELTA_RE.match(text)
     if m:
         idx = int(m.group(1))
@@ -257,7 +355,7 @@ def handle_user_message(user_id: str, text: str) -> tuple[str | None, dict | Non
         return reply, None, False
 
     return (
-        "Send /goals to see goals. Examples: 1 5  ·  1 +3  ·  1 -2. /help for more.",
+        "Send /goals to see goals. Examples: 1 5 · 1 yes · 1 2026-06-10 no. /help for more.",
         keyboard,
         False,
     )

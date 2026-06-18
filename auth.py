@@ -63,6 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
 ADMIN_USERNAME = "admin"
 ADMIN_DEFAULT_PASSWORD = "admin"
 _PBKDF2_ITERATIONS = 260_000
+_USERS_TABLE_INITIALIZED = False
 
 
 def _connect() -> sqlite3.Connection:
@@ -90,7 +91,10 @@ def _migrate_users_notification_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE users ADD COLUMN last_progress_update_at TEXT")
 
 
-def init_users_table() -> None:
+def init_users_table(*, force: bool = False) -> None:
+    global _USERS_TABLE_INITIALIZED
+    if _USERS_TABLE_INITIALIZED and not force:
+        return
     with _connect() as conn:
         conn.executescript(
             _USERS_DDL
@@ -101,6 +105,7 @@ def init_users_table() -> None:
         )
         _migrate_users_notification_columns(conn)
         conn.commit()
+    _USERS_TABLE_INITIALIZED = True
 
 
 def hash_password(password: str) -> str:
@@ -581,6 +586,14 @@ def get_app_meta(key: str) -> str | None:
     with _connect() as conn:
         row = conn.execute("SELECT value FROM app_meta WHERE key = ?", (key,)).fetchone()
     return str(row["value"]) if row else None
+
+
+def get_all_app_meta() -> dict[str, str]:
+    """Load all app_meta rows in one query (used for settings cache)."""
+    init_users_table()
+    with _connect() as conn:
+        rows = conn.execute("SELECT key, value FROM app_meta").fetchall()
+    return {str(r["key"]): str(r["value"]) for r in rows}
 
 
 def set_app_meta(key: str, value: str) -> None:

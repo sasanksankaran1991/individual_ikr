@@ -5,16 +5,38 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from config import format_month_label, month_key, new_goal_id
+from config import (
+    DAILY_MODE_AVOID,
+    DAILY_MODE_DO,
+    GOAL_TYPE_ACCUMULATE,
+    GOAL_TYPE_DAILY,
+    GOAL_TYPE_REDUCE,
+    config_edit_deadline,
+    config_edit_status,
+    format_month_label,
+    is_config_editable,
+    month_key,
+    new_goal_id,
+)
 from data import (
     draft_rows_for_month,
     list_configured_months,
     month_summary,
     save_month_goals,
 )
+from goal_scoring import daily_mode_label, goal_type_label
 from reminder_settings import allow_unequal_weightage
 from session_auth import current_user_id
-from styles import card_container
+
+_GOAL_TYPE_OPTIONS = [
+    (GOAL_TYPE_ACCUMULATE, goal_type_label(GOAL_TYPE_ACCUMULATE)),
+    (GOAL_TYPE_REDUCE, goal_type_label(GOAL_TYPE_REDUCE)),
+    (GOAL_TYPE_DAILY, goal_type_label(GOAL_TYPE_DAILY)),
+]
+_DAILY_MODE_OPTIONS = [
+    (DAILY_MODE_DO, daily_mode_label(DAILY_MODE_DO)),
+    (DAILY_MODE_AVOID, daily_mode_label(DAILY_MODE_AVOID)),
+]
 
 
 def _month_picker(key_prefix: str) -> str:
@@ -79,21 +101,33 @@ def _reset_rows(user_id: str, month: str, *, copy_from: str | None = None) -> No
 def _ensure_row_widgets(user_id: str, month: str, row: dict) -> None:
     gid = row["id"]
     prefix = _widget_prefix(user_id, month)
-    goal_key = f"{prefix}_goal_{gid}"
-    target_key = f"{prefix}_target_{gid}"
-    weight_key = f"{prefix}_weight_{gid}"
-    cat_key = f"{prefix}_cat_{gid}"
-    notes_key = f"{prefix}_notes_{gid}"
-    if goal_key not in st.session_state:
-        st.session_state[goal_key] = row.get("goal", "")
-    if target_key not in st.session_state:
-        st.session_state[target_key] = float(row.get("target", 1.0))
-    if weight_key not in st.session_state:
-        st.session_state[weight_key] = float(row.get("weightage", 0.0))
-    if cat_key not in st.session_state:
-        st.session_state[cat_key] = row.get("category", "")
-    if notes_key not in st.session_state:
-        st.session_state[notes_key] = row.get("notes", "")
+    defaults: dict[str, object] = {
+        "goal": "",
+        "target": 1.0,
+        "weightage": 0.0,
+        "category": "",
+        "notes": "",
+        "goal_type": GOAL_TYPE_ACCUMULATE,
+        "baseline": 0.0,
+        "unit": "",
+        "daily_mode": DAILY_MODE_DO,
+    }
+    # Widget key suffixes (weightage is stored under "weight" in session_state).
+    key_fields = {
+        "goal": "goal",
+        "target": "target",
+        "weightage": "weight",
+        "category": "cat",
+        "notes": "notes",
+        "goal_type": "goal_type",
+        "baseline": "baseline",
+        "unit": "unit",
+        "daily_mode": "daily_mode",
+    }
+    for field, key_suffix in key_fields.items():
+        key = f"{prefix}_{key_suffix}_{gid}"
+        if key not in st.session_state:
+            st.session_state[key] = row.get(field, defaults[field])
 
 
 def _collect_rows(user_id: str, month: str, rows: list[dict]) -> list[dict]:
@@ -109,16 +143,222 @@ def _collect_rows(user_id: str, month: str, rows: list[dict]) -> list[dict]:
                 "weightage": float(st.session_state.get(f"{prefix}_weight_{gid}", 0.0)),
                 "category": str(st.session_state.get(f"{prefix}_cat_{gid}", "")).strip(),
                 "notes": str(st.session_state.get(f"{prefix}_notes_{gid}", "")).strip(),
+                "goal_type": str(st.session_state.get(f"{prefix}_goal_type_{gid}", GOAL_TYPE_ACCUMULATE)),
+                "baseline": float(st.session_state.get(f"{prefix}_baseline_{gid}", 0.0)),
+                "unit": str(st.session_state.get(f"{prefix}_unit_{gid}", "")).strip(),
+                "daily_mode": str(st.session_state.get(f"{prefix}_daily_mode_{gid}", DAILY_MODE_DO)),
             }
         )
     return out
+
+
+def _target_help(goal_type: str, daily_mode: str) -> str:
+    if goal_type == GOAL_TYPE_REDUCE:
+        return "End target (e.g. 75 kg after losing 5 kg from baseline)."
+    if goal_type == GOAL_TYPE_DAILY:
+        if daily_mode == DAILY_MODE_DO:
+            return "Optional personal target; score uses checked days / elapsed days."
+        return "Stay unchecked every day — score uses on-track days / elapsed days."
+    return "Monthly target to reach."
+
+
+def _total_weightage(user_id: str, month: str, rows: list[dict]) -> float:
+    collected = _collect_rows(user_id, month, rows)
+    return sum(r["weightage"] for r in collected)
+
+
+def _config_expander_state_key(user_id: str, month: str, goal_id: str) -> str:
+    return f"cfg_exp_open_{user_id}_{month}_{goal_id}"
+
+
+def _mark_config_expander_open(exp_key: str) -> None:
+    st.session_state[exp_key] = True
+
+
+def _render_single_goal_row(
+    user_id: str,
+    selected_month: str,
+    row: dict,
+    *,
+    editable: bool = True,
+) -> str | None:
+    """One goal's editable fields; fragment rerun keeps the parent expander open."""
+    gid = row["id"]
+    prefix = _widget_prefix(user_id, selected_month)
+    exp_key = _config_expander_state_key(user_id, selected_month, gid)
+    keep_open = _mark_config_expander_open
+
+    _ensure_row_widgets(user_id, selected_month, row)
+
+    type_labels = [label for _, label in _GOAL_TYPE_OPTIONS]
+    type_values = [val for val, _ in _GOAL_TYPE_OPTIONS]
+    mode_labels = [label for _, label in _DAILY_MODE_OPTIONS]
+    mode_values = [val for val, _ in _DAILY_MODE_OPTIONS]
+
+    st.text_input(
+        "Goal name",
+        key=f"{prefix}_goal_{gid}",
+        on_change=keep_open,
+        args=(exp_key,),
+        disabled=not editable,
+    )
+
+    type_idx = type_values.index(
+        st.session_state.get(f"{prefix}_goal_type_{gid}", GOAL_TYPE_ACCUMULATE)
+    ) if st.session_state.get(f"{prefix}_goal_type_{gid}", GOAL_TYPE_ACCUMULATE) in type_values else 0
+    selected_type_label = st.selectbox(
+        "Goal type",
+        options=type_labels,
+        index=type_idx,
+        key=f"{prefix}_goal_type_sel_{gid}",
+        on_change=keep_open,
+        args=(exp_key,),
+        disabled=not editable,
+    )
+    st.session_state[f"{prefix}_goal_type_{gid}"] = type_values[type_labels.index(selected_type_label)]
+    goal_type = st.session_state[f"{prefix}_goal_type_{gid}"]
+
+    st.text_input(
+        "Unit (optional)",
+        key=f"{prefix}_unit_{gid}",
+        placeholder="hrs, kg, days…",
+        on_change=keep_open,
+        args=(exp_key,),
+        disabled=not editable,
+    )
+
+    if goal_type == GOAL_TYPE_REDUCE:
+        st.number_input(
+            "Baseline (start of month)",
+            min_value=0.0,
+            step=0.1,
+            format="%.1f",
+            key=f"{prefix}_baseline_{gid}",
+            help="Starting level, e.g. 80 kg.",
+            on_change=keep_open,
+            args=(exp_key,),
+            disabled=not editable,
+        )
+
+    if goal_type == GOAL_TYPE_DAILY:
+        mode_idx = mode_values.index(
+            st.session_state.get(f"{prefix}_daily_mode_{gid}", DAILY_MODE_DO)
+        ) if st.session_state.get(f"{prefix}_daily_mode_{gid}", DAILY_MODE_DO) in mode_values else 0
+        selected_mode_label = st.selectbox(
+            "Daily mode",
+            options=mode_labels,
+            index=mode_idx,
+            key=f"{prefix}_daily_mode_sel_{gid}",
+            on_change=keep_open,
+            args=(exp_key,),
+            disabled=not editable,
+        )
+        st.session_state[f"{prefix}_daily_mode_{gid}"] = mode_values[
+            mode_labels.index(selected_mode_label)
+        ]
+        daily_mode = st.session_state[f"{prefix}_daily_mode_{gid}"]
+        if daily_mode == DAILY_MODE_AVOID:
+            st.session_state[f"{prefix}_target_{gid}"] = 0.0
+    else:
+        daily_mode = DAILY_MODE_DO
+
+    tw1, tw2 = st.columns(2)
+    with tw1:
+        if goal_type == GOAL_TYPE_DAILY and daily_mode == DAILY_MODE_AVOID:
+            st.caption("**Target:** unchecked every day (0 slips)")
+        else:
+            st.number_input(
+                "Target",
+                min_value=0.0,
+                step=1.0,
+                format="%.2f",
+                key=f"{prefix}_target_{gid}",
+                help=_target_help(goal_type, daily_mode),
+                on_change=keep_open,
+                args=(exp_key,),
+                disabled=not editable,
+            )
+    with tw2:
+        st.number_input(
+            "Weightage",
+            min_value=0.0,
+            step=5.0,
+            format="%.1f",
+            key=f"{prefix}_weight_{gid}",
+            on_change=keep_open,
+            args=(exp_key,),
+            disabled=not editable,
+        )
+    st.text_input(
+        "Category (optional)",
+        key=f"{prefix}_cat_{gid}",
+        on_change=keep_open,
+        args=(exp_key,),
+        disabled=not editable,
+    )
+    st.text_input(
+        "Notes (optional)",
+        key=f"{prefix}_notes_{gid}",
+        on_change=keep_open,
+        args=(exp_key,),
+        disabled=not editable,
+    )
+    if editable and st.button(
+        "Remove goal",
+        key=f"{prefix}_del_{gid}",
+        use_container_width=True,
+    ):
+        return gid
+    return None
+
+
+def _render_goal_rows(
+    user_id: str,
+    selected_month: str,
+    rows: list[dict],
+    rows_key: str,
+    *,
+    editable: bool = True,
+) -> str | None:
+    """Editable goal list + live total weightage. Returns goal id to delete, if any."""
+    delete_id: str | None = None
+    prefix = _widget_prefix(user_id, selected_month)
+
+    for i, row in enumerate(rows):
+        gid = row["id"]
+        _ensure_row_widgets(user_id, selected_month, row)
+        goal_name = str(st.session_state.get(f"{prefix}_goal_{gid}", "")).strip()
+        weight_val = float(st.session_state.get(f"{prefix}_weight_{gid}", row.get("weightage", 0.0)))
+        header = goal_name if goal_name else f"Goal {i + 1} (unnamed)"
+        expander_label = f"{header}  ·  {weight_val:.1f}% weightage"
+        exp_key = _config_expander_state_key(user_id, selected_month, gid)
+
+        with st.expander(
+            expander_label,
+            expanded=st.session_state.get(exp_key, False),
+        ):
+            maybe_del = _render_single_goal_row(
+                user_id, selected_month, row, editable=editable
+            )
+            if maybe_del:
+                delete_id = maybe_del
+
+    total_weight = _total_weightage(user_id, selected_month, rows)
+    st.metric("Total weightage", f"{total_weight:.1f}")
+    if abs(total_weight - 100.0) >= 0.01 and rows:
+        st.caption("Should sum to **100** for a balanced score.")
+
+    return delete_id
 
 
 def render_config_tab() -> None:
     user_id = current_user_id()
 
     st.markdown("### Goal config")
-    st.caption("Set monthly goals with a target and weightage for your account.")
+    st.caption(
+        "Set monthly goals. Types: **Accumulate** (build up), **Reduce** (e.g. weight), "
+        "**Daily log** (walk / no-smoking with yes/no)."
+    )
 
     configured = list_configured_months(user_id)
     copy_from: str | None = None
@@ -134,6 +374,18 @@ def render_config_tab() -> None:
 
     selected_month = _month_picker(f"config_{user_id}")
     rows_key = _rows_key(user_id, selected_month)
+    config_editable = is_config_editable(selected_month)
+    _, config_lock_msg = config_edit_status(selected_month)
+
+    if config_editable:
+        deadline = config_edit_deadline(selected_month)
+        if deadline:
+            st.caption(
+                f"Goals for {format_month_label(selected_month)} can be edited "
+                f"through **{deadline.strftime('%d %b %Y')}**."
+            )
+    else:
+        st.warning(config_lock_msg)
 
     active_user = st.session_state.get("config_active_user")
     active_month = st.session_state.get("config_active_month")
@@ -143,7 +395,7 @@ def render_config_tab() -> None:
     if rows_key not in st.session_state:
         st.session_state[rows_key] = _load_rows(user_id, selected_month)
 
-    if copy_from and st.button(
+    if copy_from and config_editable and st.button(
         f"Apply copy from {format_month_label(copy_from)}",
         key=f"config_apply_copy_btn_{user_id}",
     ):
@@ -154,7 +406,9 @@ def render_config_tab() -> None:
 
     b1, b2 = st.columns(2)
     with b1:
-        if st.button("➕ Add goal", key=f"config_add_row_btn_{user_id}", use_container_width=True):
+        if config_editable and st.button(
+            "➕ Add goal", key=f"config_add_row_btn_{user_id}", use_container_width=True
+        ):
             rows.append(
                 {
                     "id": new_goal_id(),
@@ -163,6 +417,10 @@ def render_config_tab() -> None:
                     "weightage": 0.0,
                     "category": "",
                     "notes": "",
+                    "goal_type": GOAL_TYPE_ACCUMULATE,
+                    "baseline": 0.0,
+                    "unit": "",
+                    "daily_mode": DAILY_MODE_DO,
                 }
             )
             st.session_state[rows_key] = rows
@@ -176,47 +434,17 @@ def render_config_tab() -> None:
         st.info("No goals yet. Tap **Add goal** to start.")
         return
 
-    delete_id: str | None = None
+    delete_id = _render_goal_rows(
+        user_id, selected_month, rows, rows_key, editable=config_editable
+    )
     prefix = _widget_prefix(user_id, selected_month)
-
-    for i, row in enumerate(rows):
-        gid = row["id"]
-        _ensure_row_widgets(user_id, selected_month, row)
-        with card_container():
-            st.caption(f"Goal {i + 1}")
-            st.text_input(
-                "Goal name",
-                key=f"{prefix}_goal_{gid}",
-            )
-            tw1, tw2 = st.columns(2)
-            with tw1:
-                st.number_input(
-                    "Target",
-                    min_value=0.0,
-                    step=1.0,
-                    format="%.2f",
-                    key=f"{prefix}_target_{gid}",
-                )
-            with tw2:
-                st.number_input(
-                    "Weightage",
-                    min_value=0.0,
-                    step=5.0,
-                    format="%.1f",
-                    key=f"{prefix}_weight_{gid}",
-                )
-            st.text_input("Category (optional)", key=f"{prefix}_cat_{gid}")
-            st.text_input("Notes (optional)", key=f"{prefix}_notes_{gid}")
-            if st.button(
-                "Remove goal",
-                key=f"{prefix}_del_{gid}",
-                use_container_width=True,
-            ):
-                delete_id = gid
 
     if delete_id:
         st.session_state[rows_key] = [r for r in rows if r["id"] != delete_id]
-        for suffix in ("goal", "target", "weight", "cat", "notes"):
+        for suffix in (
+            "goal", "target", "weight", "cat", "notes", "goal_type", "goal_type_sel",
+            "baseline", "unit", "daily_mode", "daily_mode_sel",
+        ):
             key = f"{prefix}_{suffix}_{delete_id}"
             if key in st.session_state:
                 del st.session_state[key]
@@ -224,10 +452,9 @@ def render_config_tab() -> None:
 
     collected = _collect_rows(user_id, selected_month, st.session_state[rows_key])
     named = [r for r in collected if r["goal"]]
-    total_weight = sum(r["weightage"] for r in named)
-    st.metric("Total weightage", f"{total_weight:.1f}")
+    total_weight = _total_weightage(user_id, selected_month, st.session_state[rows_key])
     weight_ok = abs(total_weight - 100.0) < 0.01
-    if named and not weight_ok:
+    if named and not weight_ok and config_editable:
         st.warning("Weightages should sum to **100** for a balanced score.")
         if st.button(
             "Normalize weightages to 100%",
@@ -235,12 +462,18 @@ def render_config_tab() -> None:
             use_container_width=True,
         ):
             scale = 100.0 / total_weight if total_weight > 0 else 0.0
-            for row in named:
-                wkey = f"{prefix}_weight_{row['id']}"
-                st.session_state[wkey] = round(float(st.session_state[wkey]) * scale, 1)
+            updated_rows = st.session_state[rows_key]
+            for row in updated_rows:
+                gid = row["id"]
+                wkey = f"{prefix}_weight_{gid}"
+                current = float(st.session_state.get(wkey, row.get("weightage", 0.0)))
+                row["weightage"] = round(current * scale, 1)
+                if wkey in st.session_state:
+                    del st.session_state[wkey]
+            st.session_state[rows_key] = updated_rows
             st.rerun()
 
-    if st.button(
+    if config_editable and st.button(
         "Save goals for this month",
         type="primary",
         key=f"config_save_btn_{user_id}",
@@ -259,14 +492,24 @@ def render_config_tab() -> None:
                 dupes.append(name)
                 continue
             seen_names.add(name_lower)
+            gt = row.get("goal_type", GOAL_TYPE_ACCUMULATE)
+            dm = row.get("daily_mode", DAILY_MODE_DO)
+            if gt == GOAL_TYPE_REDUCE and float(row.get("baseline", 0)) <= float(row["target"]):
+                st.error(f"Reduce goal '{name}': baseline must be greater than target.")
+                return
+            target_val = 0.0 if gt == GOAL_TYPE_DAILY and dm == DAILY_MODE_AVOID else max(float(row["target"]), 0.0)
             out_goals.append(
                 {
                     "id": row["id"],
                     "name": name,
-                    "target": max(float(row["target"]), 0.0),
+                    "target": target_val,
                     "weightage": max(float(row["weightage"]), 0.0),
                     "category": row.get("category", ""),
                     "notes": row.get("notes", ""),
+                    "goal_type": gt,
+                    "baseline": max(float(row.get("baseline") or 0.0), 0.0),
+                    "unit": row.get("unit", ""),
+                    "daily_mode": row.get("daily_mode", DAILY_MODE_DO),
                 }
             )
 
@@ -284,7 +527,10 @@ def render_config_tab() -> None:
             )
             return
 
-        save_month_goals(user_id, selected_month, out_goals)
+        ok, save_msg = save_month_goals(user_id, selected_month, out_goals)
+        if not ok:
+            st.error(save_msg)
+            return
         _reset_rows(user_id, selected_month)
         st.success(f"Saved goals for {format_month_label(selected_month)}.")
         st.rerun()

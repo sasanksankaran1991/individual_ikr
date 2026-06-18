@@ -7,9 +7,12 @@ from datetime import datetime
 from auth import get_app_meta, set_app_meta
 from config import (
     MID_MONTH_REMINDER_DAY,
+    PROGRESS_LOCK_WARNING_DAYS,
     SCHEDULER_DAILY_REMINDER_META_KEY,
     SCHEDULER_LAST_POLL_META_KEY,
     is_last_day_of_month,
+    previous_month_key,
+    progress_lock_days_remaining,
 )
 from data import init_db
 from notifications import (
@@ -17,6 +20,7 @@ from notifications import (
     process_end_month_reports,
     process_evening_nudges,
     process_mid_month_reports,
+    process_progress_lock_reminders,
 )
 from reminder_settings import get_reminder_settings
 from telegram_inbound import process_all_inbound_updates
@@ -85,6 +89,23 @@ def _should_run_end_month(now: datetime) -> bool:
     return _in_time_window(now, settings["reminder_hour"], settings["reminder_minute"])
 
 
+def _should_run_progress_lock_warning(now: datetime) -> bool:
+    settings = get_reminder_settings()
+    if not settings["reminders_enabled"]:
+        return False
+    closing_month = previous_month_key(now.date())
+    if not closing_month:
+        return False
+    days_left = progress_lock_days_remaining(closing_month, now.date())
+    if days_left is None or days_left > PROGRESS_LOCK_WARNING_DAYS:
+        return False
+    today = now.date().isoformat()
+    meta_key = f"scheduler_progress_lock_{closing_month}_{today}"
+    if get_app_meta(meta_key) == "1":
+        return False
+    return _in_time_window(now, settings["reminder_hour"], settings["reminder_minute"])
+
+
 def run_background_tick() -> dict:
     """Poll Telegram; run scheduled reminders when due."""
     init_db()
@@ -111,6 +132,14 @@ def run_background_tick() -> dict:
     if _should_run_daily_reminders(now):
         reminder_results.extend(process_daily_reminders())
         set_app_meta(SCHEDULER_DAILY_REMINDER_META_KEY, now.date().isoformat())
+    if _should_run_progress_lock_warning(now):
+        closing_month = previous_month_key(now.date())
+        reminder_results.extend(process_progress_lock_reminders())
+        if closing_month:
+            set_app_meta(
+                f"scheduler_progress_lock_{closing_month}_{now.date().isoformat()}",
+                "1",
+            )
     if _should_run_evening_nudge(now):
         reminder_results.extend(process_evening_nudges())
         set_app_meta("scheduler_evening_nudge_date", now.date().isoformat())
