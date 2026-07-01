@@ -1,0 +1,36 @@
+# Individual IKR — Docker Compose (Streamlit only; scheduler runs on GCP or host cron)
+#
+#   docker compose up -d
+#
+# Scheduler (every 3 hours) — pick one:
+#   GCP: bash scripts/gcp/deploy.sh  (Cloud Run Job + Cloud Scheduler)
+#   Local cron: 0 */3 * * * cd /path/to/individual_ikr && python scripts/run_scheduled_tick.py
+
+name: individual-ikr
+
+services:
+  ikr-streamlit:
+    build: .
+    container_name: ikr-streamlit
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TZ: ${TZ:-Asia/Kolkata}
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
+      USE_SECRET_MANAGER: ${USE_SECRET_MANAGER:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_SSL_VERIFY: ${TELEGRAM_SSL_VERIFY:-1}
+      IKR_USE_CLOUD_SCHEDULER: ${IKR_USE_CLOUD_SCHEDULER:-0}
+    ports:
+      - "${IKR_STREAMLIT_PORT:-18501}:18501"
+    volumes:
+      - ./ikr.db:/app/ikr.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "scripts/health_check.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 25s

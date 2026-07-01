@@ -39,8 +39,14 @@ def scheduler_now() -> datetime:
     return datetime.now()
 
 
-def _in_time_window(now: datetime, hour: int, minute: int) -> bool:
-    return now.hour == hour and now.minute >= minute
+def _is_scheduled_time_reached(now: datetime, hour: int, minute: int) -> bool:
+    """True once today's scheduled local time has passed (works with sparse Cloud Scheduler ticks)."""
+    from datetime import time as dt_time
+
+    due = datetime.combine(now.date(), dt_time(hour, minute))
+    if now.tzinfo is not None:
+        due = due.replace(tzinfo=now.tzinfo)
+    return now >= due
 
 
 def _should_run_daily_reminders(now: datetime) -> bool:
@@ -50,7 +56,9 @@ def _should_run_daily_reminders(now: datetime) -> bool:
     today = now.date().isoformat()
     if get_app_meta(SCHEDULER_DAILY_REMINDER_META_KEY) == today:
         return False
-    return _in_time_window(now, settings["reminder_hour"], settings["reminder_minute"])
+    return _is_scheduled_time_reached(
+        now, settings["reminder_hour"], settings["reminder_minute"]
+    )
 
 
 def _should_run_evening_nudge(now: datetime) -> bool:
@@ -60,7 +68,7 @@ def _should_run_evening_nudge(now: datetime) -> bool:
     today = now.date().isoformat()
     if get_app_meta("scheduler_evening_nudge_date") == today:
         return False
-    return _in_time_window(
+    return _is_scheduled_time_reached(
         now, settings["evening_nudge_hour"], settings["evening_nudge_minute"]
     )
 
@@ -74,7 +82,9 @@ def _should_run_mid_month(now: datetime) -> bool:
     today = now.date().isoformat()
     if get_app_meta("scheduler_mid_month_date") == today:
         return False
-    return _in_time_window(now, settings["reminder_hour"], settings["reminder_minute"])
+    return _is_scheduled_time_reached(
+        now, settings["reminder_hour"], settings["reminder_minute"]
+    )
 
 
 def _should_run_end_month(now: datetime) -> bool:
@@ -86,7 +96,9 @@ def _should_run_end_month(now: datetime) -> bool:
     today = now.date().isoformat()
     if get_app_meta("scheduler_end_month_date") == today:
         return False
-    return _in_time_window(now, settings["reminder_hour"], settings["reminder_minute"])
+    return _is_scheduled_time_reached(
+        now, settings["reminder_hour"], settings["reminder_minute"]
+    )
 
 
 def _should_run_progress_lock_warning(now: datetime) -> bool:
@@ -103,7 +115,9 @@ def _should_run_progress_lock_warning(now: datetime) -> bool:
     meta_key = f"scheduler_progress_lock_{closing_month}_{today}"
     if get_app_meta(meta_key) == "1":
         return False
-    return _in_time_window(now, settings["reminder_hour"], settings["reminder_minute"])
+    return _is_scheduled_time_reached(
+        now, settings["reminder_hour"], settings["reminder_minute"]
+    )
 
 
 def run_background_tick() -> dict:

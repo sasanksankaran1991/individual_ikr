@@ -1,0 +1,3 @@
+*.sh text eol=lf
+scripts/gcp/* text eol=lf
+docker/entrypoint-gcp.sh text eol=lf

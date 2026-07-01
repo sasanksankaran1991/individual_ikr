@@ -2,6 +2,8 @@
 telegram_bot_token.txt
 .env
 .env.*
+scripts/gcp/config.env
+../scripts/gcp/config.env
 
 # Database & personal data (created locally on first run)
 ikr.db

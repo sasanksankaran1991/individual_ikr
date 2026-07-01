@@ -129,6 +129,12 @@ def _normalize_tab_state() -> None:
 
 
 def _register_background_scheduler() -> None:
+    if os.environ.get("IKR_USE_CLOUD_SCHEDULER", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return
     if st.session_state.get("_scheduler_loop_started"):
         return
     settings = get_reminder_settings()

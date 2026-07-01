@@ -1,0 +1,4 @@
+# Cloud Run Job / local cron: full scheduler tick every 3 hours (not a 24/7 daemon).
+# GCP: use scripts/gcp/deploy.sh (Cloud Scheduler triggers run_scheduled_tick.py).
+# Local: crontab -e → 0 */3 * * * cd /path/to/individual_ikr && python scripts/run_scheduled_tick.py
+0 */3 * * * cd /app && python scripts/run_scheduled_tick.py >> /var/log/scheduler/scheduler-tick.log 2>&1

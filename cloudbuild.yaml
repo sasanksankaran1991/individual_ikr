@@ -1,0 +1,25 @@
+# Build from repo root: bash scripts/gcp/build.sh
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE}:latest
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE}:${BUILD_ID}
+      - .
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE}:latest
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE}:${BUILD_ID}
+
+substitutions:
+  _REGION: asia-southeast1
+  _AR_REPO: individual-ikr
+  _IMAGE: individual-ikr
+
+options:
+  logging: CLOUD_LOGGING_ONLY

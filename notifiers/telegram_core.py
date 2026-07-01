@@ -12,26 +12,22 @@ from pathlib import Path
 import requests
 
 _ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+import gcp_secrets  # noqa: E402
 
 
 def read_telegram_bot_token_from_file() -> str:
-    """First non-empty, non-# line from telegram_bot_token.txt in the project root."""
-    p = _ROOT / "telegram_bot_token.txt"
-    if not p.is_file():
-        return ""
-    try:
-        text = p.read_text(encoding="utf-8")
-    except OSError:
-        return ""
-    for line in text.splitlines():
-        s = line.strip()
-        if s and not s.startswith("#"):
-            return s
-    return ""
+    return gcp_secrets.resolve_plaintext(
+        key="telegram_bot_token",
+        env_var="TELEGRAM_BOT_TOKEN",
+        file_path=_ROOT / "telegram_bot_token.txt",
+    )
 
 
 def resolve_bot_token() -> str:
-    return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip() or read_telegram_bot_token_from_file()
+    return read_telegram_bot_token_from_file()
 
 
 def _telegram_requests_verify():
