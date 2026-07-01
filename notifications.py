@@ -103,20 +103,14 @@ def build_progress_summary(user_id: str, month_key: str, *, username: str = "") 
             f"{i}. {_pace_emoji(gi['tone'])} {g['name']}{cat}: "
             f"{display} ({pct:.0f}%) [{gi['label']}]"
         )
-    lines.append("\nSend /goals when you want the chart. Updates reply with text only.")
+    lines.append("\nSend /goals when you want the chart. Tap ❓ Help for commands.")
     return "\n".join(lines)
 
 
 def _telegram_update_hint() -> str:
-    return (
-        "\n\n✏️ Update from Telegram:\n"
-        "• Send: 1 5  (set value)\n"
-        "• Send: 1 +3  or  1 -2  (add / subtract)\n"
-        "• Daily goals: 1 yes  ·  1 no  ·  1 2026-06-10 yes (backdate)\n"
-        "• Or: Read: 3  (goal name + value)\n"
-        "• /goals — refresh list\n"
-        "• /help — commands"
-    )
+    from telegram_help import telegram_help_plain
+
+    return "\n\n" + telegram_help_plain()
 
 
 def build_stale_progress_reminder(user_id: str, month_key: str, *, username: str = "") -> str:
@@ -213,6 +207,7 @@ def send_telegram_message(
     user_id: str | None = None,
     month_key: str | None = None,
     attach_timeline: bool = False,
+    parse_mode: str | None = None,
 ) -> tuple[bool, str]:
     token = resolve_bot_token()
     if not token:
@@ -232,7 +227,9 @@ def send_telegram_message(
                         return True, "Message sent to Telegram."
                     except Exception:
                         pass
-        telegram_send_text(token, chat_id, message, reply_markup=reply_markup)
+        telegram_send_text(
+            token, chat_id, message, reply_markup=reply_markup, parse_mode=parse_mode
+        )
     except Exception as exc:
         return False, f"Telegram send failed: {exc}"
     return True, "Message sent to Telegram."

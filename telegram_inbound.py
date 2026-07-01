@@ -36,6 +36,7 @@ from notifications import (
     send_telegram_with_timeline,
 )
 from telegram_connect import _parse_start_payload
+from telegram_help import telegram_help_plain, telegram_help_text
 
 # Goal number + delta, e.g. "1 +3" or "2 -4"
 _UPDATE_DELTA_RE = re.compile(r"^(\d+)\s*([+-])\s*(\d+(?:\.\d+)?)$")
@@ -110,20 +111,6 @@ def fetch_and_ack_updates() -> tuple[list[dict], str | None]:
     return updates, None
 
 
-def telegram_help_text() -> str:
-    return (
-        "IKR bot commands:\n"
-        "• /goals or /status — show this month's goals\n"
-        "• 1 5 — set goal 1 to 5 (accumulate / reduce)\n"
-        "• 1 +3 — add 3 to goal 1\n"
-        "• 1 -2 — subtract 2 from goal 1\n"
-        "• 1 yes / 1 no — daily log for today\n"
-        "• 1 2026-06-10 yes — daily log (backdate)\n"
-        "• Read: 3 — set by goal name\n"
-        "• /help — this message"
-    )
-
-
 def build_simple_reply_keyboard() -> dict:
     """Two shortcut buttons only — all updates use typed text like 1 5."""
     return {
@@ -166,7 +153,7 @@ def build_numbered_status(user_id: str, month_key: str | None = None) -> str:
         )
         lines.append(f"{i}. {g['name']}: {display} ({pct:.0f}%)")
     lines.append("")
-    lines.append("Update: 1 5 · 1 +3 · 1 yes/no · 1 YYYY-MM-DD yes")
+    lines.append(telegram_help_plain())
     return "\n".join(lines)
 
 
@@ -286,8 +273,7 @@ def handle_user_message(user_id: str, text: str) -> tuple[str | None, dict | Non
     if lower.startswith("/start"):
         return (
             "👋 Individual IKR bot\n\n"
-            "Send /goals to see goals.\n"
-            "Update: 1 5  (set) · 1 +3  (add) · 1 -2  (subtract)",
+            "Tap ❓ Help for the command table, or send /goals.",
             keyboard,
             False,
         )
@@ -355,7 +341,7 @@ def handle_user_message(user_id: str, text: str) -> tuple[str | None, dict | Non
         return reply, None, False
 
     return (
-        "Send /goals to see goals. Examples: 1 5 · 1 yes · 1 2026-06-10 no. /help for more.",
+        "Send /goals to see your goals.\n\n" + telegram_help_plain(),
         keyboard,
         False,
     )
@@ -364,7 +350,7 @@ def handle_user_message(user_id: str, text: str) -> tuple[str | None, dict | Non
 def handle_callback_query(user_id: str, data: str) -> tuple[str | None, dict | None, bool]:
     if data == "refresh":
         return _goals_status_reply(user_id, current_month_key())
-    return "Send /goals or 1 5 to update. /help for commands.", build_simple_reply_keyboard(), False
+    return "Send /goals or tap ❓ Help.\n\n" + telegram_help_plain(), build_simple_reply_keyboard(), False
 
 
 def _handle_connect(update: dict) -> bool:
@@ -391,9 +377,8 @@ def _handle_connect(update: dict) -> bool:
     link_user_telegram(uid, str(chat_id))
     send_telegram_message(
         str(chat_id),
-        "✅ Connected to Individual IKR.\n"
-        "Send /goals to see goals.\n"
-        "Update: 1 5  (set) · 1 +3  (add) · 1 -2  (subtract)",
+        "✅ Connected to Individual IKR.\n\n"
+        "Send /goals or tap ❓ Help for the command table.",
         reply_markup=build_simple_reply_keyboard(),
     )
     return True
@@ -440,7 +425,12 @@ def _process_inbound_updates_locked() -> tuple[list[dict], str | None]:
                 month_key,
                 reply_markup=None,
             )
-        return send_telegram_message(chat_id_s, reply, reply_markup=markup)
+        return send_telegram_message(
+            chat_id_s, reply, reply_markup=markup, parse_mode=_parse_mode_for(reply)
+        )
+
+    def _parse_mode_for(reply: str) -> str | None:
+        return "HTML" if "<pre>" in reply else None
 
     for update in updates:
         update_id = int(update.get("update_id", 0))
