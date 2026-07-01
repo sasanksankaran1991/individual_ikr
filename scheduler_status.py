@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from auth import get_app_meta, list_telegram_notification_users, list_users, set_app_meta
-from config import SCHEDULER_DAILY_REMINDER_META_KEY, SCHEDULER_LAST_POLL_META_KEY
+from config import CLOUD_TICK_INTERVAL_OPTIONS, SCHEDULER_DAILY_REMINDER_META_KEY, SCHEDULER_LAST_POLL_META_KEY
 from notifiers.telegram_core import fetch_bot_info, resolve_bot_token
 from reminder_settings import get_reminder_settings
 
@@ -37,6 +37,7 @@ def get_scheduler_status() -> dict:
     rh, rm = settings["reminder_hour"], settings["reminder_minute"]
     next_reminder = f"Daily at {rh:02d}:{rm:02d} ({tz})"
 
+    interval_min = settings["cloud_tick_interval_minutes"]
     return {
         "telegram_configured": token_ok,
         "bot_username": _cached_bot_username() if token_ok else "",
@@ -44,6 +45,10 @@ def get_scheduler_status() -> dict:
         "last_daily_reminder_date": last_daily,
         "next_daily_reminder": next_reminder,
         "poll_interval_seconds": settings["poll_interval_seconds"],
+        "cloud_tick_interval_minutes": interval_min,
+        "cloud_tick_interval_label": CLOUD_TICK_INTERVAL_OPTIONS.get(
+            interval_min, f"{interval_min} min"
+        ),
         "reminders_enabled": settings["reminders_enabled"],
         "evening_nudge_enabled": settings["evening_nudge_enabled"],
         "mid_month_enabled": settings["mid_month_enabled"],

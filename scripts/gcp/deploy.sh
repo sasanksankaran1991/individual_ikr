@@ -30,8 +30,8 @@ deploy_job() {
     --region="$REGION"
     --service-account="$SA"
     --set-env-vars="$ENV_VARS"
-    --command=python
-    --args="$script_path"
+    --command=/entrypoint-gcp.sh
+    --args="python,$script_path"
     --max-retries=1
     --task-timeout=15m
     --memory=512Mi
@@ -107,7 +107,7 @@ schedule_job ikr-scheduler-schedule "$IKR_SCHEDULER_CRON" ikr-scheduler
 echo ""
 log "Deployment complete."
 echo "  Streamlit:   $STREAMLIT_URL"
-echo "  Scheduler:   every 3 hours ($IKR_SCHEDULER_CRON $TZ) → ikr-scheduler job"
+echo "  Scheduler:   Cloud wakes every 30 min; interval from admin Settings ($IKR_SCHEDULER_CRON $TZ)"
 echo ""
 echo "Manual scheduler run:"
 echo "  gcloud run jobs execute ikr-scheduler --region=$REGION --wait"

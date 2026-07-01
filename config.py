@@ -94,6 +94,15 @@ DEFAULT_TIMEZONE = ""
 DEFAULT_SESSION_TIMEOUT_MINUTES = 7200  # 5 days
 AUTH_SESSION_DAYS = 5
 AUTH_SESSION_COOKIE = "ikr_auth"
+DEFAULT_CLOUD_TICK_INTERVAL_MINUTES = 180
+# Cloud Run wakes this often; admin picks actual interval in Settings (stored in ikr.db).
+CLOUD_SCHEDULER_WAKE_MINUTES = 30
+CLOUD_TICK_INTERVAL_OPTIONS: dict[int, str] = {
+    30: "30 minutes",
+    60: "1 hour",
+    180: "3 hours",
+    360: "6 hours",
+}
 SCHEDULER_DAILY_REMINDER_META_KEY = "scheduler_daily_reminder_date"
 SCHEDULER_LAST_POLL_META_KEY = "scheduler_last_poll_at"
 

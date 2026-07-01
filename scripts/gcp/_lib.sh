@@ -28,7 +28,7 @@ load_config() {
   TZ="${TZ:-Asia/Kolkata}"
   USE_SECRET_MANAGER="${USE_SECRET_MANAGER:-1}"
   GCP_SECRET_PREFIX="${GCP_SECRET_PREFIX:-ikr-}"
-  IKR_SCHEDULER_CRON="${IKR_SCHEDULER_CRON:-0 */3 * * *}"
+  IKR_SCHEDULER_CRON="${IKR_SCHEDULER_CRON:-*/30 * * * *}"
 }
 
 image_uri() {

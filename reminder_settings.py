@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from auth import get_all_app_meta, set_app_meta
 from config import (
+    CLOUD_TICK_INTERVAL_OPTIONS,
     CONFIG_EDIT_GRACE_DAY,
     DAILY_REMINDER_HOUR,
     DAILY_REMINDER_MINUTE,
+    DEFAULT_CLOUD_TICK_INTERVAL_MINUTES,
     DEFAULT_SESSION_TIMEOUT_MINUTES,
     DEFAULT_TIMEZONE,
     EVENING_NUDGE_HOUR,
@@ -18,6 +20,7 @@ from config import (
 META_REMINDER_HOUR = "settings_reminder_hour"
 META_REMINDER_MINUTE = "settings_reminder_minute"
 META_POLL_INTERVAL = "settings_telegram_poll_interval_seconds"
+META_CLOUD_TICK_INTERVAL = "settings_cloud_tick_interval_minutes"
 META_REMINDERS_ENABLED = "settings_reminders_enabled"
 META_TIMEZONE = "settings_timezone"
 META_EVENING_ENABLED = "settings_evening_nudge_enabled"
@@ -80,6 +83,7 @@ def get_reminder_settings() -> dict:
         "poll_interval_seconds": _int_from_meta(
             meta, META_POLL_INTERVAL, TELEGRAM_POLL_INTERVAL_SECONDS
         ),
+        "cloud_tick_interval_minutes": _cloud_tick_interval_from_meta(meta),
         "reminders_enabled": _bool_from_meta(meta, META_REMINDERS_ENABLED, default=True),
         "timezone": meta.get(META_TIMEZONE) or DEFAULT_TIMEZONE,
         "evening_nudge_enabled": _bool_from_meta(meta, META_EVENING_ENABLED, default=False),
@@ -125,11 +129,25 @@ def allow_unequal_weightage() -> bool:
     return get_reminder_settings()["allow_unequal_weightage"]
 
 
+def _cloud_tick_interval_from_meta(meta: dict[str, str]) -> int:
+    raw = meta.get(META_CLOUD_TICK_INTERVAL)
+    if raw and raw.isdigit():
+        minutes = int(raw)
+        if minutes in CLOUD_TICK_INTERVAL_OPTIONS:
+            return minutes
+    return DEFAULT_CLOUD_TICK_INTERVAL_MINUTES
+
+
+def get_cloud_tick_interval_minutes() -> int:
+    return get_reminder_settings()["cloud_tick_interval_minutes"]
+
+
 def save_reminder_settings(
     *,
     reminder_hour: int,
     reminder_minute: int,
     poll_interval_seconds: int,
+    cloud_tick_interval_minutes: int = DEFAULT_CLOUD_TICK_INTERVAL_MINUTES,
     reminders_enabled: bool,
     timezone: str = "",
     evening_nudge_enabled: bool = False,
@@ -151,6 +169,9 @@ def save_reminder_settings(
             f"Telegram poll interval must be between "
             f"{MIN_POLL_INTERVAL} and {MAX_POLL_INTERVAL} seconds."
         )
+    if cloud_tick_interval_minutes not in CLOUD_TICK_INTERVAL_OPTIONS:
+        choices = ", ".join(CLOUD_TICK_INTERVAL_OPTIONS.values())
+        return False, f"Background scheduler interval must be one of: {choices}."
     if not 0 <= evening_nudge_hour <= 23:
         return False, "Evening nudge hour must be between 0 and 23."
     if not 0 <= evening_nudge_minute <= 59:
@@ -180,6 +201,7 @@ def save_reminder_settings(
     set_app_meta(META_REMINDER_HOUR, str(reminder_hour))
     set_app_meta(META_REMINDER_MINUTE, str(reminder_minute))
     set_app_meta(META_POLL_INTERVAL, str(poll_interval_seconds))
+    set_app_meta(META_CLOUD_TICK_INTERVAL, str(cloud_tick_interval_minutes))
     set_app_meta(META_REMINDERS_ENABLED, "1" if reminders_enabled else "0")
     set_app_meta(META_TIMEZONE, tz)
     set_app_meta(META_EVENING_ENABLED, "1" if evening_nudge_enabled else "0")
