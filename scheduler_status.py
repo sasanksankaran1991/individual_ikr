@@ -5,9 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 
 from auth import get_app_meta, list_telegram_notification_users, list_users, set_app_meta
+from auth import get_app_meta
 from cloud_scheduler_sync import (
     DEFAULT_CLOUD_TZ,
     META_SYNC_AT,
+    META_SYNC_DETAIL,
     META_SYNC_ERROR,
     TELEGRAM_POLL_CRON,
     describe_cloud_schedulers,
@@ -65,6 +67,7 @@ def get_scheduler_status() -> dict:
         "last_telegram_error": get_app_meta("telegram_last_error") or "",
         "cloud_scheduler_sync_at": get_app_meta(META_SYNC_AT) or "Never",
         "cloud_scheduler_sync_error": get_app_meta(META_SYNC_ERROR) or "",
+        "cloud_scheduler_sync_detail": get_app_meta(META_SYNC_DETAIL) or "",
         "cloud_schedulers": describe_cloud_schedulers(),
         "checked_at": datetime.now().isoformat(timespec="seconds"),
     }

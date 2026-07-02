@@ -78,7 +78,27 @@ def _cached_scheduler_status() -> dict:
     return get_scheduler_status()
 
 
+def _show_save_feedback() -> None:
+    """Persistent banner — survives st.rerun() until the next save."""
+    message = st.session_state.get("admin_save_feedback_message")
+    if not message:
+        return
+    level = st.session_state.get("admin_save_feedback_level", "success")
+    if level == "error":
+        st.error(message)
+    elif level == "warning":
+        st.warning(message)
+    else:
+        st.success(message)
+
+
+def _set_save_feedback(message: str, level: str) -> None:
+    st.session_state["admin_save_feedback_message"] = message
+    st.session_state["admin_save_feedback_level"] = level
+
+
 def _render_settings_form(settings: dict) -> None:
+    _show_save_feedback()
     _init_settings_widgets(settings)
 
     enabled = st.toggle("Send daily reminders", key="admin_reminders_enabled")
@@ -152,7 +172,7 @@ def _render_settings_form(settings: dict) -> None:
         )
 
     if st.button("Save settings", type="primary", use_container_width=True, key="admin_save_settings"):
-        ok, message = save_reminder_settings(
+        result = save_reminder_settings(
             reminder_hour=int(hour),
             reminder_minute=int(minute),
             poll_interval_seconds=int(st.session_state["admin_poll_interval"]),
@@ -168,16 +188,39 @@ def _render_settings_form(settings: dict) -> None:
             config_edit_grace_day=int(st.session_state["admin_config_grace"]),
             progress_edit_grace_day=int(st.session_state["admin_progress_grace"]),
         )
+        if len(result) == 3:
+            ok, message, level = result
+        else:
+            ok, message = result
+            level = "error" if not ok else "success"
         if ok:
             _cached_scheduler_status.clear()
             _clear_admin_widget_state()
             st.session_state["admin_settings_revision"] = (
                 int(st.session_state.get("admin_settings_revision", 0)) + 1
             )
-            st.success(message)
+            _set_save_feedback(message, level)
             st.rerun()
         else:
-            st.error(message)
+            _set_save_feedback(message, "error")
+
+    if st.button(
+        "Re-sync Cloud Scheduler now",
+        use_container_width=True,
+        key="admin_resync_schedulers",
+        help="Push current settings to Google Cloud Scheduler without changing other options.",
+    ):
+        from cloud_scheduler_sync import sync_cloud_schedulers
+        from gcs_sidecar import persist_ikr_db_to_cloud
+
+        sync_ok, sync_msg = sync_cloud_schedulers(get_reminder_settings())
+        persist_ikr_db_to_cloud()
+        _cached_scheduler_status.clear()
+        _set_save_feedback(
+            sync_msg,
+            "success" if sync_ok else "warning",
+        )
+        st.rerun()
 
 
 def render_settings_content() -> None:
@@ -210,8 +253,10 @@ def render_settings_content() -> None:
             f"({'on' if status.get('evening_nudge_enabled') else 'paused'})"
         )
         st.caption(f"Cloud scheduler sync: {status.get('cloud_scheduler_sync_at', 'Never')}")
+        if status.get("cloud_scheduler_sync_detail"):
+            st.caption(f"Last sync detail: {status['cloud_scheduler_sync_detail']}")
         if status.get("cloud_scheduler_sync_error"):
-            st.warning(f"Scheduler sync error: {status['cloud_scheduler_sync_error']}")
+            st.error(f"Scheduler sync error: {status['cloud_scheduler_sync_error']}")
         schedulers = status.get("cloud_schedulers") or []
         if schedulers:
             for row in schedulers:

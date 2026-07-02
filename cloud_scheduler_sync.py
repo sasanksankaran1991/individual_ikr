@@ -132,6 +132,7 @@ def _upsert_scheduler(
     scheduler_sa: str,
 ) -> str:
     from google.cloud import scheduler_v1  # type: ignore[import-untyped]
+    from google.protobuf import field_mask_pb2  # type: ignore[import-untyped]
 
     parent = f"projects/{project}/locations/{region}"
     full_name = f"{parent}/jobs/{spec.scheduler_id}"
@@ -160,7 +161,12 @@ def _upsert_scheduler(
         existing.schedule = spec.cron
         existing.time_zone = time_zone
         existing.http_target = http_target
-        client.update_job(job=existing)
+        client.update_job(
+            job=existing,
+            update_mask=field_mask_pb2.FieldMask(
+                paths=["schedule", "time_zone", "http_target"]
+            ),
+        )
         action = "updated"
 
     if spec.enabled:
@@ -174,9 +180,15 @@ def _upsert_scheduler(
 
 
 def sync_cloud_schedulers(settings: dict | None = None) -> tuple[bool, str]:
-    """Apply admin settings to Cloud Scheduler (cron + pause/resume)."""
+    """Apply admin settings to Cloud Scheduler (cron + pause/resume).
+
+    Returns (sync_ok, message). sync_ok is False when GCP update failed or was skipped on cloud.
+    """
     if not cloud_scheduler_sync_enabled():
-        return True, "Cloud scheduler sync skipped (not on GCP)."
+        return False, (
+            "Scheduler sync skipped: not running on GCP "
+            "(need GCS_DATA_BUCKET and GOOGLE_CLOUD_PROJECT)."
+        )
 
     project = _project_id()
     region = _region()
@@ -208,9 +220,16 @@ def sync_cloud_schedulers(settings: dict | None = None) -> tuple[bool, str]:
                 )
             )
     except Exception as exc:
-        msg = f"Cloud Scheduler sync failed: {exc}"
+        err_text = str(exc)
+        hint = ""
+        if "403" in err_text or "permission" in err_text.lower():
+            hint = (
+                " Grant roles/cloudscheduler.admin to the Cloud Run service account "
+                "(run: bash scripts/gcp/bootstrap.sh)."
+            )
+        msg = f"Cloud Scheduler sync failed: {exc}.{hint}"
         print(msg, file=sys.stderr)
-        set_app_meta(META_SYNC_ERROR, str(exc)[:500])
+        set_app_meta(META_SYNC_ERROR, err_text[:500])
         return False, msg
 
     detail = "; ".join(lines)
@@ -218,7 +237,7 @@ def sync_cloud_schedulers(settings: dict | None = None) -> tuple[bool, str]:
     set_app_meta(META_SYNC_AT, now)
     set_app_meta(META_SYNC_ERROR, "")
     set_app_meta(META_SYNC_DETAIL, detail[:2000])
-    return True, f"Settings saved. Cloud schedules updated ({time_zone})."
+    return True, f"Cloud schedules updated ({time_zone}). Details: {detail}"
 
 
 def describe_cloud_schedulers() -> list[dict]:
@@ -238,23 +257,28 @@ def describe_cloud_schedulers() -> list[dict]:
 
     from google.cloud import scheduler_v1  # type: ignore[import-untyped]
     from google.api_core.exceptions import NotFound  # type: ignore[import-untyped]
+    from google.protobuf import field_mask_pb2  # type: ignore[import-untyped]
 
     from reminder_settings import get_reminder_settings
 
+    out: list[dict] = []
     for spec in build_scheduler_specs(get_reminder_settings()):
         full_name = f"projects/{project}/locations/{region}/jobs/{spec.scheduler_id}"
         try:
             job = client.get_job(name=full_name)
             state = scheduler_v1.Job.State(job.state).name
+            cron = str(job.schedule or spec.cron)
         except NotFound:
             state = "MISSING"
+            cron = spec.cron
         except Exception:
             state = "UNKNOWN"
+            cron = spec.cron
         out.append(
             {
                 "id": spec.scheduler_id,
                 "run_job": spec.run_job_id,
-                "cron": spec.cron,
+                "cron": cron,
                 "enabled": spec.enabled,
                 "state": state,
             }

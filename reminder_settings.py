@@ -219,9 +219,7 @@ def save_reminder_settings(
     _invalidate_settings_cache()
     settings = get_reminder_settings()
     sync_ok, sync_msg = sync_cloud_schedulers(settings)
+    persist_ikr_db_to_cloud()
     if sync_ok:
-        persist_ikr_db_to_cloud()
-        return True, sync_msg
-    return True, (
-        f"Settings saved to database, but Cloud Scheduler sync failed: {sync_msg}"
-    )
+        return True, f"Settings saved. {sync_msg}", "success"
+    return True, f"Settings saved to database, but scheduler sync failed.\n\n{sync_msg}", "warning"
