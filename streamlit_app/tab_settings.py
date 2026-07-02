@@ -6,10 +6,9 @@ from datetime import datetime
 
 import streamlit as st
 
-from config import current_month_key, format_month_label
+from config import DEFAULT_TIMEZONE, current_month_key, format_month_label
 from export_utils import export_all_users_csv, export_month_csv, read_database_bytes
 from notifications import broadcast_summaries_to_all_users
-from config import CLOUD_TICK_INTERVAL_OPTIONS
 from reminder_settings import (
     COMMON_TIMEZONES,
     MAX_EDIT_GRACE_DAY,
@@ -34,7 +33,6 @@ _ADMIN_WIDGET_KEYS = (
     "admin_evening_minute",
     "admin_timezone",
     "admin_poll_interval",
-    "admin_cloud_tick_interval",
     "admin_session_timeout",
     "admin_allow_unequal",
     "admin_config_grace",
@@ -59,7 +57,6 @@ def _init_settings_widgets(settings: dict) -> None:
         "admin_evening_hour": int(settings["evening_nudge_hour"]),
         "admin_evening_minute": int(settings["evening_nudge_minute"]),
         "admin_poll_interval": int(settings["poll_interval_seconds"]),
-        "admin_cloud_tick_interval": int(settings["cloud_tick_interval_minutes"]),
         "admin_session_timeout": int(settings["session_timeout_minutes"]),
         "admin_allow_unequal": settings["allow_unequal_weightage"],
         "admin_config_grace": int(settings["config_edit_grace_day"]),
@@ -101,12 +98,14 @@ def _render_settings_form(settings: dict) -> None:
         [settings["timezone"]] if settings["timezone"] not in COMMON_TIMEZONES else []
     )
     st.selectbox(
-        "Timezone (empty = server local)",
+        "Timezone",
         options=tz_options,
-        format_func=lambda x: "Server local" if not x else x,
+        format_func=lambda x: DEFAULT_TIMEZONE if not x else x,
+        help="Used for Cloud Scheduler reminder times (default Asia/Kolkata).",
         key="admin_timezone",
     )
 
+    st.markdown("Cloud: Telegram is polled every **15 minutes** via Google Cloud Scheduler.")
     st.number_input(
         "Telegram poll interval when app is open (seconds)",
         MIN_POLL_INTERVAL,
@@ -114,16 +113,6 @@ def _render_settings_form(settings: dict) -> None:
         step=10,
         help="Only applies while someone has the Streamlit app open.",
         key="admin_poll_interval",
-    )
-    st.selectbox(
-        "Background scheduler (app closed / Cloud)",
-        options=list(CLOUD_TICK_INTERVAL_OPTIONS.keys()),
-        format_func=lambda m: CLOUD_TICK_INTERVAL_OPTIONS[m],
-        help=(
-            "How often Telegram is polled and reminders run when the website is closed. "
-            "Saved to the database — no redeploy needed."
-        ),
-        key="admin_cloud_tick_interval",
     )
     st.number_input(
         "Session timeout (minutes)",
@@ -167,7 +156,6 @@ def _render_settings_form(settings: dict) -> None:
             reminder_hour=int(hour),
             reminder_minute=int(minute),
             poll_interval_seconds=int(st.session_state["admin_poll_interval"]),
-            cloud_tick_interval_minutes=int(st.session_state["admin_cloud_tick_interval"]),
             reminders_enabled=enabled,
             timezone=str(st.session_state["admin_timezone"]),
             evening_nudge_enabled=evening,
@@ -215,14 +203,24 @@ def render_settings_content() -> None:
         if status.get("bot_username"):
             st.caption(f"Bot: @{status['bot_username']}")
         st.caption(f"Last poll: {status['last_poll_at']}")
+        st.caption(f"Telegram (cloud): every 15 min ({status.get('timezone', 'Asia/Kolkata')})")
+        st.caption(f"Morning reminder: {status.get('morning_reminder_at', '?')}")
         st.caption(
-            f"Background scheduler: every {status.get('cloud_tick_interval_label', '?')} "
-            f"(Cloud wakes every ~30 min)"
+            f"Evening nudge: {status.get('evening_nudge_at', '?')} "
+            f"({'on' if status.get('evening_nudge_enabled') else 'paused'})"
         )
+        st.caption(f"Cloud scheduler sync: {status.get('cloud_scheduler_sync_at', 'Never')}")
+        if status.get("cloud_scheduler_sync_error"):
+            st.warning(f"Scheduler sync error: {status['cloud_scheduler_sync_error']}")
+        schedulers = status.get("cloud_schedulers") or []
+        if schedulers:
+            for row in schedulers:
+                st.caption(
+                    f"  {row['id']}: {row['state']} — {row['cron']}"
+                )
         if status.get("last_telegram_error"):
             st.warning(f"Last Telegram error: {status['last_telegram_error']}")
         st.caption(f"Last daily reminder date: {status['last_daily_reminder_date']}")
-        st.caption(f"Next daily reminder: {status['next_daily_reminder']}")
         st.caption(f"Checked at: {status['checked_at']}")
 
     with card_container():

@@ -90,12 +90,13 @@ DAILY_REMINDER_MINUTE = 30
 EVENING_NUDGE_HOUR = 18
 EVENING_NUDGE_MINUTE = 0
 MID_MONTH_REMINDER_DAY = 15
-DEFAULT_TIMEZONE = ""
+DEFAULT_TIMEZONE = "Asia/Kolkata"
 DEFAULT_SESSION_TIMEOUT_MINUTES = 7200  # 5 days
 AUTH_SESSION_DAYS = 5
 AUTH_SESSION_COOKIE = "ikr_auth"
 DEFAULT_CLOUD_TICK_INTERVAL_MINUTES = 180
-# Cloud Run wakes this often; admin picks actual interval in Settings (stored in ikr.db).
+# Deploy one-time: bash scripts/gcp/bootstrap.sh  (grants runner SA cloudscheduler.admin)
+# After code changes: build + deploy.sh, then Admin → Save settings once (syncs schedulers).
 CLOUD_SCHEDULER_WAKE_MINUTES = 30
 CLOUD_TICK_INTERVAL_OPTIONS: dict[int, str] = {
     30: "30 minutes",

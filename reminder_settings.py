@@ -152,7 +152,6 @@ def save_reminder_settings(
     reminder_hour: int,
     reminder_minute: int,
     poll_interval_seconds: int,
-    cloud_tick_interval_minutes: int = DEFAULT_CLOUD_TICK_INTERVAL_MINUTES,
     reminders_enabled: bool,
     timezone: str = "",
     evening_nudge_enabled: bool = False,
@@ -174,9 +173,6 @@ def save_reminder_settings(
             f"Telegram poll interval must be between "
             f"{MIN_POLL_INTERVAL} and {MAX_POLL_INTERVAL} seconds."
         )
-    if cloud_tick_interval_minutes not in CLOUD_TICK_INTERVAL_OPTIONS:
-        choices = ", ".join(CLOUD_TICK_INTERVAL_OPTIONS.values())
-        return False, f"Background scheduler interval must be one of: {choices}."
     if not 0 <= evening_nudge_hour <= 23:
         return False, "Evening nudge hour must be between 0 and 23."
     if not 0 <= evening_nudge_minute <= 59:
@@ -194,19 +190,17 @@ def save_reminder_settings(
             f"{MIN_EDIT_GRACE_DAY} and {MAX_EDIT_GRACE_DAY}."
         )
 
-    tz = timezone.strip()
-    if tz:
-        try:
-            from zoneinfo import ZoneInfo
+    tz = timezone.strip() or DEFAULT_TIMEZONE
+    try:
+        from zoneinfo import ZoneInfo
 
-            ZoneInfo(tz)
-        except Exception:
-            return False, f"Invalid timezone: {tz!r}"
+        ZoneInfo(tz)
+    except Exception:
+        return False, f"Invalid timezone: {tz!r}"
 
     set_app_meta(META_REMINDER_HOUR, str(reminder_hour))
     set_app_meta(META_REMINDER_MINUTE, str(reminder_minute))
     set_app_meta(META_POLL_INTERVAL, str(poll_interval_seconds))
-    set_app_meta(META_CLOUD_TICK_INTERVAL, str(cloud_tick_interval_minutes))
     set_app_meta(META_REMINDERS_ENABLED, "1" if reminders_enabled else "0")
     set_app_meta(META_TIMEZONE, tz)
     set_app_meta(META_EVENING_ENABLED, "1" if evening_nudge_enabled else "0")
@@ -218,10 +212,16 @@ def save_reminder_settings(
     set_app_meta(META_ALLOW_UNEQUAL_WEIGHT, "1" if allow_unequal_weightage else "0")
     set_app_meta(META_CONFIG_EDIT_GRACE_DAY, str(config_edit_grace_day))
     set_app_meta(META_PROGRESS_EDIT_GRACE_DAY, str(progress_edit_grace_day))
+    from cloud_scheduler_sync import sync_cloud_schedulers
     from gcs_sidecar import persist_ikr_db_to_cloud
-    from scheduler_state_store import write_cloud_tick_interval_minutes
 
-    write_cloud_tick_interval_minutes(cloud_tick_interval_minutes)
     persist_ikr_db_to_cloud()
     _invalidate_settings_cache()
-    return True, "Settings saved."
+    settings = get_reminder_settings()
+    sync_ok, sync_msg = sync_cloud_schedulers(settings)
+    if sync_ok:
+        persist_ikr_db_to_cloud()
+        return True, sync_msg
+    return True, (
+        f"Settings saved to database, but Cloud Scheduler sync failed: {sync_msg}"
+    )

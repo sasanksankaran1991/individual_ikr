@@ -87,6 +87,13 @@ gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" \
   --condition=None \
   --quiet >/dev/null
 
+log "Granting Cloud Scheduler admin to runner SA (Admin Save syncs schedules)..."
+gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" \
+  --member="serviceAccount:${RUNNER_EMAIL}" \
+  --role="roles/cloudscheduler.admin" \
+  --condition=None \
+  --quiet >/dev/null
+
 log "Creating Secret Manager shell: ${GCP_SECRET_PREFIX}telegram-bot-token"
 sid="${GCP_SECRET_PREFIX}telegram-bot-token"
 if gcloud secrets describe "$sid" --project="$GCP_PROJECT_ID" &>/dev/null; then
