@@ -20,6 +20,12 @@ from config import (
 _DB_INITIALIZED = False
 _JSON_MIGRATION_CHECKED: set[str] = set()
 
+
+def _persist_to_cloud() -> None:
+    from gcs_sidecar import persist_ikr_db_to_cloud
+
+    persist_ikr_db_to_cloud()
+
 _GOALS_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS goals (
     id TEXT PRIMARY KEY,
@@ -393,6 +399,7 @@ def save_month_goals(
             (user_id, month_key),
         )
         conn.commit()
+    _persist_to_cloud()
     return True, "Saved."
 
 
@@ -454,6 +461,7 @@ def save_month_summary(user_id: str, month_key: str, record: dict) -> None:
             ),
         )
         conn.commit()
+    _persist_to_cloud()
 
 
 def delete_month_summary(user_id: str, month_key: str) -> None:
@@ -621,6 +629,7 @@ def save_month_progress(
     from notifications import record_progress_saved
 
     record_progress_saved(user_id)
+    _persist_to_cloud()
     return True, "Saved."
 
 
@@ -707,6 +716,7 @@ def save_daily_entry(
         conn.commit()
 
     sync_daily_progress(user_id, month_key, goal_id, source=source)
+    _persist_to_cloud()
     return True, "Saved."
 
 

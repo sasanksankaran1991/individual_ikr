@@ -5,11 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 
 from auth import get_app_meta, set_app_meta
+from scheduler_state_store import write_last_poll_at
 from config import (
     MID_MONTH_REMINDER_DAY,
     PROGRESS_LOCK_WARNING_DAYS,
     SCHEDULER_DAILY_REMINDER_META_KEY,
-    SCHEDULER_LAST_POLL_META_KEY,
     is_last_day_of_month,
     previous_month_key,
     progress_lock_days_remaining,
@@ -124,7 +124,7 @@ def run_background_tick() -> dict:
     """Poll Telegram; run scheduled reminders when due."""
     init_db()
     now = scheduler_now()
-    set_app_meta(SCHEDULER_LAST_POLL_META_KEY, now.isoformat(timespec="seconds"))
+    write_last_poll_at(now)
 
     inbound_results, inbound_err = process_all_inbound_updates()
     if inbound_err:

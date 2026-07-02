@@ -77,9 +77,9 @@ def fetch_pending_updates() -> tuple[list[dict], str | None]:
     except Exception:
         pass
 
-    with _connect() as conn:
-        offset_raw = _get_meta(conn, "telegram_update_offset")
-    offset = int(offset_raw) if offset_raw and offset_raw.isdigit() else None
+    from telegram_offset_store import read_telegram_update_offset
+
+    offset = read_telegram_update_offset()
 
     updates, err = fetch_updates(offset=offset)
     if err:
@@ -94,6 +94,17 @@ def acknowledge_update(update_id: int) -> None:
         next_offset = max(current, int(update_id) + 1)
         _set_meta(conn, "telegram_update_offset", str(next_offset))
         conn.commit()
+    from telegram_offset_store import write_telegram_update_offset
+
+    write_telegram_update_offset(next_offset)
+
+
+def _finish_update(update_id: int, message_preview: str = "") -> None:
+    """Record update_id as handled, then advance Telegram offset."""
+    from telegram_processed_log import mark_update_processed
+
+    mark_update_processed(update_id, message_preview)
+    acknowledge_update(update_id)
 
 
 def acknowledge_updates(updates: list[dict]) -> None:
@@ -435,21 +446,34 @@ def _process_inbound_updates_locked() -> tuple[list[dict], str | None]:
     for update in updates:
         update_id = int(update.get("update_id", 0))
         try:
+            from telegram_processed_log import is_update_processed
+
+            if is_update_processed(update_id):
+                acknowledge_update(update_id)
+                results.append(
+                    {
+                        "type": "skipped",
+                        "update_id": update_id,
+                        "reason": "already_processed",
+                    }
+                )
+                continue
+
             cb = update.get("callback_query")
             if cb:
                 chat_id = (cb.get("message") or {}).get("chat", {}).get("id")
                 if chat_id is None:
-                    acknowledge_update(update_id)
+                    _finish_update(update_id)
                     continue
                 chat_id_s = str(chat_id)
                 user = get_user_by_telegram_chat_id(chat_id_s)
                 if not user or not user.get("telegram_enabled"):
-                    acknowledge_update(update_id)
+                    _finish_update(update_id, data)
                     continue
                 data = str(cb.get("data") or "")
                 reply, markup, attach_timeline = handle_callback_query(str(user["id"]), data)
                 if not reply:
-                    acknowledge_update(update_id)
+                    _finish_update(update_id, data)
                     continue
                 if token:
                     answer_callback_query(token, str(cb.get("id", "")), reply.split("\n", 1)[0][:200])
@@ -457,7 +481,7 @@ def _process_inbound_updates_locked() -> tuple[list[dict], str | None]:
                 results.append({"type": "callback", "user": user.get("username"), "ok": ok, "detail": detail})
                 if not ok:
                     break
-                acknowledge_update(update_id)
+                _finish_update(update_id, data)
                 continue
 
             msg = update.get("message") or update.get("edited_message") or {}
@@ -465,28 +489,28 @@ def _process_inbound_updates_locked() -> tuple[list[dict], str | None]:
             chat = msg.get("chat") or {}
             chat_id = chat.get("id")
             if chat_id is None:
-                acknowledge_update(update_id)
+                _finish_update(update_id)
                 continue
 
             chat_id_s = str(chat_id)
 
             if _handle_connect(update):
                 results.append({"type": "connect", "chat_id": chat_id_s})
-                acknowledge_update(update_id)
+                _finish_update(update_id, text or "/start")
                 continue
 
             if _parse_start_payload(text):
-                acknowledge_update(update_id)
+                _finish_update(update_id, text)
                 continue
 
             user = get_user_by_telegram_chat_id(chat_id_s)
             if not user or not user.get("telegram_enabled"):
-                acknowledge_update(update_id)
+                _finish_update(update_id, text)
                 continue
 
             reply, markup, attach_timeline = handle_user_message(str(user["id"]), text)
             if not reply:
-                acknowledge_update(update_id)
+                _finish_update(update_id, text)
                 continue
 
             ok, detail = _send_reply(chat_id_s, user, reply, markup, attach_timeline)
@@ -501,7 +525,7 @@ def _process_inbound_updates_locked() -> tuple[list[dict], str | None]:
             )
             if not ok:
                 break
-            acknowledge_update(update_id)
+            _finish_update(update_id, text)
         except Exception as exc:
             results.append({"type": "error", "update_id": update_id, "ok": False, "detail": str(exc)})
             break

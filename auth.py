@@ -9,6 +9,12 @@ from datetime import datetime, timezone
 
 from config import IKRR_DB_PATH, ensure_db_file, new_user_id
 
+
+def _persist_to_cloud() -> None:
+    from gcs_sidecar import persist_ikr_db_to_cloud
+
+    persist_ikr_db_to_cloud()
+
 _USERS_DDL = """
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -240,6 +246,7 @@ def create_user(username: str, password: str, *, is_admin: bool = False) -> tupl
             ),
         )
         conn.commit()
+    _persist_to_cloud()
     return True, f"User **{username}** created."
 
 
@@ -274,6 +281,7 @@ def change_password(user_id: str, current_password: str, new_password: str) -> t
             (hash_password(new_password), user_id),
         )
         conn.commit()
+    _persist_to_cloud()
     return True, "Password updated successfully."
 
 
@@ -309,6 +317,7 @@ def delete_user(user_id: str, *, acting_admin_id: str) -> tuple[bool, str]:
         conn.commit()
 
     username = str(target["username"])
+    _persist_to_cloud()
     return True, f"User **{username}** and all their goals were deleted."
 
 
@@ -327,6 +336,7 @@ def admin_reset_password(user_id: str, new_password: str) -> tuple[bool, str]:
             (hash_password(new_password), user_id),
         )
         conn.commit()
+    _persist_to_cloud()
     return True, f"Password reset for **{row['username']}**."
 
 
@@ -375,6 +385,7 @@ def update_user_telegram_settings(
             (chat_id or None, 1 if telegram_enabled else 0, user_id),
         )
         conn.commit()
+    _persist_to_cloud()
     return True, "Telegram settings saved."
 
 
@@ -395,6 +406,7 @@ def link_user_telegram(user_id: str, chat_id: str) -> None:
             (user_id,),
         )
         conn.commit()
+    _persist_to_cloud()
 
 
 def disconnect_user_telegram(user_id: str) -> None:
@@ -413,6 +425,7 @@ def disconnect_user_telegram(user_id: str) -> None:
             (user_id,),
         )
         conn.commit()
+    _persist_to_cloud()
 
 
 def touch_last_progress_update(user_id: str) -> None:

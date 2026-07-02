@@ -8,6 +8,7 @@ Cloud Scheduler wakes every ~30 minutes; admin interval (30 min–6 h) is stored
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -30,6 +31,13 @@ def main() -> int:
     result = run_background_tick()
     result["gate"] = reason
     print(json.dumps(result, indent=2, default=str))
+    if os.environ.get("GCS_DATA_BUCKET", "").strip():
+        try:
+            from scripts.gcp.gcs_data_sync import push as gcs_push
+
+            gcs_push()
+        except Exception as exc:
+            print(f"GCS push after tick failed: {exc}", file=sys.stderr)
     return 0
 
 

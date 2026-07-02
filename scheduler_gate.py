@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from auth import get_app_meta
 from background_scheduler import scheduler_now
-from config import SCHEDULER_LAST_POLL_META_KEY
 from reminder_settings import get_cloud_tick_interval_minutes
+from scheduler_state_store import read_last_poll_at
 
 
 def cloud_tick_due() -> tuple[bool, str]:
@@ -18,14 +17,9 @@ def cloud_tick_due() -> tuple[bool, str]:
     in Settings. Skip cheaply when the chosen interval has not elapsed since last poll.
     """
     interval_min = get_cloud_tick_interval_minutes()
-    last_raw = (get_app_meta(SCHEDULER_LAST_POLL_META_KEY) or "").strip()
-    if not last_raw:
+    last_at = read_last_poll_at()
+    if last_at is None:
         return True, "first poll"
-
-    try:
-        last_at = datetime.fromisoformat(last_raw)
-    except ValueError:
-        return True, "invalid last poll timestamp"
 
     now = scheduler_now()
     if last_at.tzinfo is None and now.tzinfo is not None:

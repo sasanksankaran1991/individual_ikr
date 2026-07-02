@@ -130,6 +130,11 @@ def allow_unequal_weightage() -> bool:
 
 
 def _cloud_tick_interval_from_meta(meta: dict[str, str]) -> int:
+    from scheduler_state_store import read_cloud_tick_interval_minutes
+
+    gcs_interval = read_cloud_tick_interval_minutes()
+    if gcs_interval is not None:
+        return gcs_interval
     raw = meta.get(META_CLOUD_TICK_INTERVAL)
     if raw and raw.isdigit():
         minutes = int(raw)
@@ -213,5 +218,10 @@ def save_reminder_settings(
     set_app_meta(META_ALLOW_UNEQUAL_WEIGHT, "1" if allow_unequal_weightage else "0")
     set_app_meta(META_CONFIG_EDIT_GRACE_DAY, str(config_edit_grace_day))
     set_app_meta(META_PROGRESS_EDIT_GRACE_DAY, str(progress_edit_grace_day))
+    from gcs_sidecar import persist_ikr_db_to_cloud
+    from scheduler_state_store import write_cloud_tick_interval_minutes
+
+    write_cloud_tick_interval_minutes(cloud_tick_interval_minutes)
+    persist_ikr_db_to_cloud()
     _invalidate_settings_cache()
     return True, "Settings saved."

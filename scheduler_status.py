@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 
 from auth import get_app_meta, list_telegram_notification_users, list_users, set_app_meta
-from config import CLOUD_TICK_INTERVAL_OPTIONS, SCHEDULER_DAILY_REMINDER_META_KEY, SCHEDULER_LAST_POLL_META_KEY
+from config import CLOUD_TICK_INTERVAL_OPTIONS, SCHEDULER_DAILY_REMINDER_META_KEY
 from notifiers.telegram_core import fetch_bot_info, resolve_bot_token
 from reminder_settings import get_reminder_settings
+from scheduler_state_store import read_last_poll_at
 
 META_BOT_USERNAME = "telegram_bot_username"
 
@@ -30,7 +31,8 @@ def get_scheduler_status() -> dict:
     settings = get_reminder_settings()
     token_ok = bool(resolve_bot_token())
     tg_users = list_telegram_notification_users()
-    last_poll = get_app_meta(SCHEDULER_LAST_POLL_META_KEY) or "Never"
+    last_poll_dt = read_last_poll_at()
+    last_poll = last_poll_dt.isoformat(timespec="seconds") if last_poll_dt else "Never"
     last_daily = get_app_meta(SCHEDULER_DAILY_REMINDER_META_KEY) or "Never"
 
     tz = settings.get("timezone") or "System local"
